@@ -4,12 +4,100 @@ import subprocess
 import re
 import platform
 import json
-import copy
 import urllib.parse
 import torch
 import logging
 import yt_dlp
 from audio_separator.separator import Separator
+
+# Patch to support 2026 new models not in audio-separator 0.32.0's supported list
+try:
+    _orig_download = Separator.download_model_files
+    _orig_list = Separator.list_supported_model_files
+    _new_models = {
+        "BS Roformer 124 bands (ver. 2026.07)": {
+            "filename": "model.safetensors",
+            "download_files": [
+                "https://huggingface.co/pcunwa/BS-Roformer-Leap/resolve/main/model.safetensors",
+                "https://huggingface.co/pcunwa/BS-Roformer-Leap/resolve/main/config.yaml"
+            ]
+        },
+        "BS-Roformer-Revive 2 (Bleedless) by pcunwa": {
+            "filename": "bs_roformer_revive2.ckpt",
+            "download_files": [
+                "https://huggingface.co/pcunwa/BS-Roformer-Revive/resolve/main/bs_roformer_revive2.ckpt",
+                "https://huggingface.co/pcunwa/BS-Roformer-Revive/resolve/main/config.yaml"
+            ]
+        },
+        "BS-Roformer-Revive 3e (Fullness) by pcunwa": {
+            "filename": "bs_roformer_revive3e.ckpt",
+            "download_files": [
+                "https://huggingface.co/pcunwa/BS-Roformer-Revive/resolve/main/bs_roformer_revive3e.ckpt",
+                "https://huggingface.co/pcunwa/BS-Roformer-Revive/resolve/main/config.yaml"
+            ]
+        }
+    }
+    def _patched_list(self, *args, **kwargs):
+        result = _orig_list(self, *args, **kwargs)
+        # Inject new models into MDXC group
+        if "MDXC" not in result:
+            result["MDXC"] = {}
+        for name, info in _new_models.items():
+            if name not in result["MDXC"]:
+                result["MDXC"][name] = {
+                    "filename": info["filename"],
+                    "scores": {},
+                    "stems": [],
+                    "target_stem": None,
+                    "download_files": info["download_files"],
+                    "is_roformer": True
+                }
+        return result
+    Separator.list_supported_model_files = _patched_list
+
+    def _patched_download(self, model_filename, *args, **kwargs):
+        # Check if it's one of our patched models
+        for name, info in _new_models.items():
+            if info["filename"] == model_filename or model_filename == name:
+                # Return as MDXC type with the correct friendly name
+                model_path = os.path.join(self.model_file_dir, info["filename"])
+                # Download files if needed
+                for url_or_file in info["download_files"]:
+                    if url_or_file.startswith("http"):
+                        fname = url_or_file.split("/")[-1].split("?")[0]
+                        # Handle model.safetensors -> bs_roformer_124_bands_2026_07.ckpt mapping
+                        # For 124-band, we download model.safetensors but need to save as .ckpt or .safetensors?
+                        # Use the filename from URL's last part, but ensure it matches expected
+                        if "model.safetensors" in url_or_file and "124" in info["filename"]:
+                            # Save as the expected ckpt name but actually it's safetensors
+                            download_path = os.path.join(self.model_file_dir, info["filename"])
+                            # Download the safetensors and also ensure yaml
+                            self.download_file_if_not_exists(url_or_file, download_path)
+                        else:
+                            download_path = os.path.join(self.model_file_dir, fname)
+                            # For revive, the config.yaml should be saved with a name that matches the model?
+                            # The Separator expects yaml to be named like the model or generic
+                            self.download_file_if_not_exists(url_or_file, download_path)
+                            # Also ensure the expected ckpt/safetensors exists
+                            if download_path != model_path and not os.path.exists(model_path):
+                                # For revive, the downloaded ckpt is already the model_path, so no need
+                                pass
+                    else:
+                        download_path = os.path.join(self.model_file_dir, url_or_file)
+                        self.download_file_if_not_exists(f"https://github.com/nomadkaraoke/python-audio-separator/releases/download/model-configs/{url_or_file}", download_path)
+                # Determine yaml
+                yaml_candidate = None
+                for f in info["download_files"]:
+                    if f.endswith(".yaml") or f.endswith(".yml"):
+                        yaml_candidate = os.path.join(self.model_file_dir, f.split("/")[-1].split("?")[0])
+                        break
+                # For 124-band, the yaml is config.yaml, but we need to ensure it exists
+                return info["filename"], "MDXC", name, model_path, yaml_candidate
+        return _orig_download(self, model_filename, *args, **kwargs)
+    Separator.download_model_files = _patched_download
+    logging.info("Patched Separator to support 2026 models: 124 bands + Revive")
+except Exception as e:
+    logging.warning(f"Failed to patch Separator for 2026 models: {e}")
 
 # Inject bundled ffmpeg into PATH if system ffmpeg is missing
 try:
@@ -123,7 +211,11 @@ roformer_models = {
     'BS Roformer | Male-Female by aufr33' : 'bs_roformer_male_female_by_aufr33_sdr_7.2889.ckpt',
     'MelBand Roformer | Aspiration by Sucial' : 'aspiration_mel_band_roformer_sdr_18.9845.ckpt',
     'MelBand Roformer | Aspiration Less Aggressive by Sucial' : 'aspiration_mel_band_roformer_less_aggr_sdr_18.1201.ckpt',
-    'MelBand Roformer | Bleed Suppressor V1 by unwa-97chris' : 'mel_band_roformer_bleed_suppressor_v1.ckpt'
+    'MelBand Roformer | Bleed Suppressor V1 by unwa-97chris' : 'mel_band_roformer_bleed_suppressor_v1.ckpt',
+    # 2026 Models
+    'BS Roformer 124 bands (ver. 2026.07)' : 'model.safetensors',
+    'BS-Roformer-Revive 2 (Bleedless) by pcunwa' : 'bs_roformer_revive2.ckpt',
+    'BS-Roformer-Revive 3e (Fullness) by pcunwa' : 'bs_roformer_revive3e.ckpt'
 }
 
 mdx23c_models = [
@@ -216,6 +308,25 @@ demucs_models = [
 
 output_format = ['wav', 'flac', 'mp3', 'ogg', 'opus', 'm4a', 'aiff', 'ac3']
 
+# Single source sanity check: ensure models.json stays in sync with core definitions
+def _validate_model_consistency():
+    try:
+        if os.path.exists(models_file):
+            with open(models_file, "r", encoding="utf8") as f:
+                json_models = json.load(f)
+            core_keys = set(roformer_models.keys()) | set(mdx23c_models) | set(mdxnet_models) | set(vrarch_models) | set(demucs_models)
+            json_keys = set(json_models.keys())
+            missing_in_json = core_keys - json_keys
+            if missing_in_json:
+                logging.warning(f"[core] {len(missing_in_json)} models in core but not in models.json: {sorted(list(missing_in_json))[:5]}...")
+    except Exception as e:
+        logging.warning(f"[core] model consistency check failed: {e}")
+
+try:
+    _validate_model_consistency()
+except Exception:
+    pass
+
 #=========================#
 #     Core Functions      #
 #=========================#
@@ -224,6 +335,7 @@ def download_audio(url, output_dir="ytdl"):
     os.makedirs(output_dir, exist_ok=True)
     ydl_opts = {
         'format': 'bestaudio/best',
+        'noplaylist': True,
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'wav',
@@ -231,17 +343,29 @@ def download_audio(url, output_dir="ytdl"):
         }],
         'outtmpl': os.path.join(output_dir, '%(title)s.%(ext)s'),
         'postprocessor_args': ['-acodec', 'pcm_f32le'],
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['mweb', 'android', 'web']
+            }
+        },
     }
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
-            video_title = info['title']
             ydl.download([url])
-            file_path = os.path.join(output_dir, f"{video_title}.wav")
+            filename = ydl.prepare_filename(info)
+            file_path = os.path.splitext(filename)[0] + ".wav"
             if os.path.exists(file_path):
                 return os.path.abspath(file_path)
-            else:
-                raise Exception("Something went wrong")
+            
+            # Fallback: Find the newest wav file created in output_dir
+            from pathlib import Path
+            wav_files = list(Path(output_dir).glob("*.wav"))
+            if wav_files:
+                newest = max(wav_files, key=lambda p: p.stat().st_mtime)
+                return str(newest.resolve())
+            
+            raise Exception(f"Expected file does not exist: {file_path}")
     except Exception as e:
         raise Exception(f"Error extracting audio with yt-dlp: {str(e)}")
 

@@ -4,8 +4,8 @@
     "class": "Franklisi/darkmode"
   },
   "lang": {
-    "override": false,
-    "selected_lang": "ar_AR"
+    "override": true,
+    "selected_lang": "tr_TR"
   },
   "discord_presence": true,
   "load_custom_settings": false

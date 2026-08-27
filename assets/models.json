@@ -511,5 +511,17 @@
     ],
     "MGM_MAIN_v4.pth": [
         "https://github.com/nomadkaraoke/python-audio-separator/releases/download/model-configs/MGM_MAIN_v4.pth"
+    ],
+    "BS-Roformer-Revive 2 (Bleedless) by pcunwa": [
+        "https://huggingface.co/pcunwa/BS-Roformer-Revive/resolve/main/bs_roformer_revive2.ckpt",
+        "https://huggingface.co/pcunwa/BS-Roformer-Revive/resolve/main/config.yaml"
+    ],
+    "BS-Roformer-Revive 3e (Fullness) by pcunwa": [
+        "https://huggingface.co/pcunwa/BS-Roformer-Revive/resolve/main/bs_roformer_revive3e.ckpt",
+        "https://huggingface.co/pcunwa/BS-Roformer-Revive/resolve/main/config.yaml"
+    ],
+    "BS Roformer 124 bands (ver. 2026.07)": [
+        "https://huggingface.co/pcunwa/BS-Roformer-Leap/resolve/main/model.safetensors",
+        "https://huggingface.co/pcunwa/BS-Roformer-Leap/resolve/main/config.yaml"
     ]
 }

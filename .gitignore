@@ -1,15 +1,26 @@
-# Eddycrack864 functional adds
+# Model weights & binaries
 *.onnx
 *.pth
 *.th
 *.ckpt
 *.chpt
+*.safetensors
+models/*
+!models/.gitkeep
+
+# Node.js & Next.js
+node_modules/
+frontend/node_modules/
+frontend/.next/
+.next/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
+*.pyc
+*.pyo
 /.gradio
 
-#Audio files
+# Audio & Media files
 *.wav
 *.flac
 *.mp3
@@ -18,17 +29,22 @@ __pycache__/
 *.m4a
 *.aiff
 *.ac3
+*.mp4
+*.lrc
+*.srt
 
-# Specific files
-models/*.json
-models/*.yaml
+# Specific files & Database
+assets/favorites.db
 assets/custom_settings.json
 
-# Environments
+# Environments & Working Dirs
 .env
 .venv
 env/
 venv/
-uploads/
-outputs/
-ytdl/
+uploads/*
+!uploads/.gitkeep
+outputs/*
+!outputs/.gitkeep
+ytdl/*
+!ytdl/.gitkeep
