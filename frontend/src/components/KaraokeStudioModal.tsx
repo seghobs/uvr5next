@@ -72,7 +72,7 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
       setVideoUrl(null);
       // Auto-transcribe using vocal stem if available, or instrumental
       const sourceForLyrics = vocalStem || instStem;
-      if (sourceForLyrics && segments.length === 0) {
+      if (sourceForLyrics) {
         fetchInitialLyrics(sourceForLyrics);
       }
     }
@@ -84,9 +84,12 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
       const res = await api.transcribeLyrics(sourceFile, 'tr');
       if (res.segments && res.segments.length > 0) {
         setSegments(res.segments);
+        onNotify('success', 'Sözler Çıkarıldı!', `${res.segments.length} satır şarkı sözü Whisper AI ile başarıyla çıkarıldı.`);
+      } else {
+        setSegments([]);
       }
     } catch (err: any) {
-      onNotify('warning', 'Söz Çıkarma Uyarısı', 'Whisper sözleri otomatik okuyamadı, manuel düzenleyebilirsiniz.');
+      onNotify('warning', 'Söz Çıkarma Uyarısı', 'Whisper sözleri otomatik okuyamadı, manuel satır ekleyebilirsiniz.');
     } finally {
       setLoadingLyrics(false);
     }
@@ -247,13 +250,29 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
             </button>
           </div>
 
-          <button
-            onClick={() => handleAddSegment()}
-            className="px-3 py-1.5 rounded-xl bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Satır Ekle</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => fetchInitialLyrics(vocalStem || instStem)}
+              disabled={loadingLyrics}
+              title="Whisper AI ile şarkı sözlerini baştan otomatik çıkar"
+              className="px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 disabled:opacity-50"
+            >
+              {loadingLyrics ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="w-3.5 h-3.5" />
+              )}
+              <span>AI ile Yeniden Çıkar</span>
+            </button>
+
+            <button
+              onClick={() => handleAddSegment()}
+              className="px-3 py-1.5 rounded-xl bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Satır Ekle</span>
+            </button>
+          </div>
         </div>
 
         {/* Tab 1: Interactive Lyric Editor */}

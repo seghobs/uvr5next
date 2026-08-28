@@ -1331,12 +1331,32 @@ async def transcribe_lyrics_endpoint(req: LyricsRequest):
         if not audio_path.exists():
             raise HTTPException(status_code=404, detail="Audio file not found")
             
+        # If the input file is an Instrumental stem, automatically find the matching Vocal stem
+        import re
+        target_path = audio_path
+        fn_lower = req.file_name.lower()
+        if "instrumental" in fn_lower or "inst" in fn_lower or "other" in fn_lower:
+            # Try replacing instrumental with vocals
+            candidates = [
+                re.sub(r'instrumental', 'Vocals', req.file_name, flags=re.IGNORECASE),
+                re.sub(r'instrumental', 'vocal', req.file_name, flags=re.IGNORECASE),
+                re.sub(r'inst', 'Vocals', req.file_name, flags=re.IGNORECASE),
+                re.sub(r'other', 'vocals', req.file_name, flags=re.IGNORECASE),
+            ]
+            for cand in candidates:
+                try:
+                    p = _find_audio_file(cand)
+                    if p.exists():
+                        target_path = p
+                        break
+                except:
+                    pass
+
         segments = []
-        whisper_success = False
         try:
             model = get_whisper_model()
             res_segments, info = model.transcribe(
-                str(audio_path),
+                str(target_path),
                 language=req.language if req.language else None,
                 vad_filter=True,
                 beam_size=5
@@ -1349,61 +1369,22 @@ async def transcribe_lyrics_endpoint(req: LyricsRequest):
                         "end": round(seg.end, 2),
                         "text": txt
                     })
-            if segments:
-                whisper_success = True
         except Exception as e:
             print(f"[WHISPER TURBO ERROR] {e}")
             try:
                 import whisper
                 model = whisper.load_model("large-v3-turbo", download_root=str(WHISPER_DIR))
-                result = model.transcribe(str(audio_path), language=req.language if req.language else None)
+                result = model.transcribe(str(target_path), language=req.language if req.language else None)
                 for seg in result.get("segments", []):
-                    segments.append({
-                        "start": round(seg["start"], 2),
-                        "end": round(seg["end"], 2),
-                        "text": seg["text"].strip()
-                    })
-                if segments:
-                    whisper_success = True
+                    txt = seg.get("text", "").strip()
+                    if txt:
+                        segments.append({
+                            "start": round(seg["start"], 2),
+                            "end": round(seg["end"], 2),
+                            "text": txt
+                        })
             except Exception as e2:
                 print(f"[WHISPER FALLBACK ERROR] {e2}")
-            
-        if not whisper_success or not segments:
-            import librosa
-            import numpy as np
-            y, sr = librosa.load(str(audio_path), sr=16000)
-            duration = librosa.get_duration(y=y, sr=sr)
-            intervals = librosa.effects.split(y, top_db=25, frame_length=2048, hop_length=512)
-            
-            sample_lyrics = [
-                "♪ (Enstrümantal Giriş / Intro) ♪",
-                "Gözlerin gözlerime değdiği o an",
-                "Unuttum dünyayı, durdu her zaman",
-                "Sensiz geçen her gün bir ömür gibi",
-                "Yüreğimde saklı en güzel rüya",
-                "Söyle bana sevdiğim, bu aşk biter mi?",
-                "Yıllar geçse bile sevgin söner mi?",
-                "♪ (Müzikal Solo / Ara Nağme) ♪",
-                "Gittiğin yollara bakar ağlarım",
-                "Her şarkıda senin adını anarım",
-                "Sensiz bu can yaşar mı söyle?",
-                "♪ (Outro / Bitiş) ♪"
-            ]
-            
-            seg_count = min(len(intervals), len(sample_lyrics))
-            if seg_count == 0:
-                step = max(3.0, duration / 8.0)
-                for idx in range(int(duration / step)):
-                    st = round(idx * step, 2)
-                    en = round(min(duration, (idx + 1) * step), 2)
-                    txt = sample_lyrics[idx % len(sample_lyrics)]
-                    segments.append({"start": st, "end": en, "text": txt})
-            else:
-                for idx in range(seg_count):
-                    st = round(intervals[idx][0] / sr, 2)
-                    en = round(intervals[idx][1] / sr, 2)
-                    txt = sample_lyrics[idx % len(sample_lyrics)]
-                    segments.append({"start": st, "end": en, "text": txt})
 
         lrc_lines = ["[ti:" + req.file_name + "]", "[ar:UVR5 AI Studio]"]
         srt_lines = []
@@ -1413,37 +1394,29 @@ async def transcribe_lyrics_endpoint(req: LyricsRequest):
             secs = s["start"] % 60
             lrc_lines.append(f"[{mins:02d}:{secs:05.2f}]{s['text']}")
             
-            st_ms = int((s["start"] % 1) * 1000)
-            st_s = int(s["start"]) % 60
-            st_m = int(s["start"] // 60) % 60
-            st_h = int(s["start"] // 3600)
+            # SRT format
+            st_h, st_m, st_s = int(s["start"] // 3600), int((s["start"] % 3600) // 60), s["start"] % 60
+            en_h, en_m, en_s = int(s["end"] // 3600), int((s["end"] % 3600) // 60), s["end"] % 60
+            st_str = f"{st_h:02d}:{st_m:02d}:{int(st_s):02d},{int((st_s - int(st_s)) * 1000):03d}"
+            en_str = f"{en_h:02d}:{en_m:02d}:{int(en_s):02d},{int((en_s - int(en_s)) * 1000):03d}"
             
-            en_ms = int((s["end"] % 1) * 1000)
-            en_s = int(s["end"]) % 60
-            en_m = int(s["end"] // 60) % 60
-            en_h = int(s["end"] // 3600)
-            
-            srt_lines.append(f"{i+1}\n{st_h:02d}:{st_m:02d}:{st_s:02d},{st_ms:03d} --> {en_h:02d}:{en_m:02d}:{en_s:02d},{en_ms:03d}\n{s['text']}\n")
+            srt_lines.append(f"{i+1}\n{st_str} --> {en_str}\n{s['text']}\n")
 
-        lrc_str = "\n".join(lrc_lines)
-        srt_str = "\n".join(srt_lines)
+        lrc_content = "\n".join(lrc_lines)
+        srt_content = "\n".join(srt_lines)
         
-        base_name = Path(req.file_name).stem
-        lrc_path = OUTPUT_DIR / f"{base_name}.lrc"
-        srt_path = OUTPUT_DIR / f"{base_name}.srt"
-        try:
-            lrc_path.write_text(lrc_str, encoding="utf-8")
-            srt_path.write_text(srt_str, encoding="utf-8")
-        except:
-            pass
-
+        lrc_name = f"{Path(req.file_name).stem}.lrc"
+        srt_name = f"{Path(req.file_name).stem}.srt"
+        (OUTPUT_DIR / lrc_name).write_text(lrc_content, encoding="utf-8")
+        (OUTPUT_DIR / srt_name).write_text(srt_content, encoding="utf-8")
+        
         return {
             "status": "success",
             "segments": segments,
-            "lrc_content": lrc_str,
-            "srt_content": srt_str,
-            "lrc_file": f"{base_name}.lrc",
-            "srt_file": f"{base_name}.srt"
+            "lrc_content": lrc_content,
+            "srt_content": srt_content,
+            "lrc_file": lrc_name,
+            "srt_file": srt_name
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
