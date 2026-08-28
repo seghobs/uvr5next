@@ -1370,6 +1370,7 @@ async def transcribe_lyrics_endpoint(req: LyricsRequest):
                 str(target_path),
                 language=req.language if req.language else None,
                 vad_filter=True,
+                vad_parameters=dict(min_silence_duration_ms=800, speech_pad_ms=500),
                 beam_size=5,
                 word_timestamps=True
             )
@@ -1625,36 +1626,50 @@ async def generate_karaoke_video_endpoint(req: KaraokeVideoRequest):
 
         for idx, seg in enumerate(req.segments):
             st = to_ass_time(seg.start)
-            en = to_ass_time(seg.end)
+            
+            # Calculate smooth on-screen lingering time so uzatmalar / lines never abruptly vanish
+            if idx + 1 < len(req.segments):
+                next_seg = req.segments[idx + 1]
+                display_end = min(seg.end + 1.8, max(seg.end, next_seg.start - 0.3))
+            else:
+                display_end = seg.end + 2.5
+            en = to_ass_time(display_end)
             
             # Show musical break indication if there is a long pause (> 3.5s)
             if idx == 0 and seg.start >= 4.0:
                 intro_st = to_ass_time(1.0)
-                intro_en = to_ass_time(seg.start - 0.5)
+                intro_en = to_ass_time(seg.start - 0.4)
                 ass_lines.append(f"Dialogue: 0,{intro_st},{intro_en},BreakNotice,,0,0,0,,♪ (Enstrümantal Giriş / Intro) ♪")
             elif idx > 0:
                 prev_end = req.segments[idx - 1].end
                 if seg.start - prev_end >= 4.0:
-                    solo_st = to_ass_time(prev_end + 0.5)
-                    solo_en = to_ass_time(seg.start - 0.5)
+                    solo_st = to_ass_time(prev_end + 0.6)
+                    solo_en = to_ass_time(seg.start - 0.4)
                     ass_lines.append(f"Dialogue: 0,{solo_st},{solo_en},BreakNotice,,0,0,0,,♪ (Müzikal Solo / Ara Nağme) ♪")
 
-            # Word-level pause-aware karaoke tag generator
+            # Word-level pause-aware karaoke tag generator with sustain (uzatma) preservation
             if seg.words and len(seg.words) > 0:
                 cur_t = seg.start
                 w_tags = []
-                for w in seg.words:
+                num_words = len(seg.words)
+                for w_idx, w in enumerate(seg.words):
                     gap = round(w.start - cur_t, 2)
                     if gap >= 0.08:
                         # Freeze the color during the pause/es (NO filling during silence!)
                         gap_cs = int(gap * 100)
                         w_tags.append(f"{{\\k{gap_cs}}}")
                     
-                    dur = max(0.1, round(w.end - w.start, 2))
+                    # If this is the last word in the segment and the vocal note is sustained (uzatma):
+                    if w_idx == num_words - 1 and seg.end > w.end:
+                        w_end = max(w.end, seg.end)
+                    else:
+                        w_end = w.end
+                    
+                    dur = max(0.12, round(w_end - w.start, 2))
                     dur_cs = int(dur * 100)
-                    # Smooth progressive fill only while this specific word is sung
+                    # Smooth progressive fill across the entire sustained note
                     w_tags.append(f"{{\\kf{dur_cs}}}{w.word} ")
-                    cur_t = w.end
+                    cur_t = w_end
                 active_karaoke_text = "".join(w_tags).strip()
             else:
                 dur_cs = max(10, int((seg.end - seg.start) * 100))
@@ -1668,7 +1683,7 @@ async def generate_karaoke_video_endpoint(req: KaraokeVideoRequest):
                     w_tags.append(f"{{\\kf{w_cs}}}{w}")
                 active_karaoke_text = " ".join(w_tags)
             
-            # Active line with precise word timing
+            # Active line with precise word timing & sustain
             ass_lines.append(f"Dialogue: 1,{st},{en},Active,,0,0,0,,{active_karaoke_text}")
             
             # Upcoming Line Preview below active line
