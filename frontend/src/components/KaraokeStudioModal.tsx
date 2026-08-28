@@ -226,16 +226,25 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
   const handleAddSegment = (index?: number) => {
     setSegments((prev) => {
       const next = [...prev];
-      const prevEnd = index !== undefined && next[index] ? next[index].end : 0;
-      const newSeg: LyricSegment = {
-        start: Number(prevEnd.toFixed(2)),
-        end: Number((prevEnd + 4).toFixed(2)),
-        text: 'Yeni Şarkı Sözü Satırı...',
-      };
-      if (index !== undefined) {
+      if (index !== undefined && next[index]) {
+        // Row-level insert (insert right below current row)
+        const prevEnd = Number(next[index].end) || 0;
+        const nextStart = next[index + 1] ? Number(next[index + 1].start) : prevEnd + 3;
+        const newSeg: LyricSegment = {
+          start: Number(prevEnd.toFixed(2)),
+          end: Number(Math.max(prevEnd + 0.5, nextStart).toFixed(2)),
+          text: '',
+        };
         next.splice(index + 1, 0, newSeg);
       } else {
-        next.push(newSeg);
+        // Top Toolbar "Satır Ekle" Button: Add empty line at the very top (en üste boş satır)
+        const firstStart = next.length > 0 ? Number(next[0].start) : 3.0;
+        const newSeg: LyricSegment = {
+          start: 0.0,
+          end: Number(Math.max(0.5, firstStart).toFixed(2)),
+          text: '',
+        };
+        next.unshift(newSeg);
       }
       triggerAutoSave(next);
       return next;
