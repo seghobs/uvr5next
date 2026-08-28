@@ -83,6 +83,14 @@ const nextConfig = {
         source: '/generate_karaoke_video',
         destination: 'http://127.0.0.1:8000/generate_karaoke_video',
       },
+      {
+        source: '/whisper_status',
+        destination: 'http://127.0.0.1:8000/whisper_status',
+      },
+      {
+        source: '/download_whisper',
+        destination: 'http://127.0.0.1:8000/download_whisper',
+      },
     ];
   },
 };

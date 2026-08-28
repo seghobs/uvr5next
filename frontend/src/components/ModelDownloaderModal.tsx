@@ -40,6 +40,8 @@ export const ModelDownloaderModal: React.FC<ModelDownloaderModalProps> = ({
   const [searchFilter, setSearchFilter] = useState<string>('');
   const [modelStatuses, setModelStatuses] = useState<Record<string, ModelStatus>>({});
   const [downloadingKeys, setDownloadingKeys] = useState<Record<string, number>>({});
+  const [whisperStatus, setWhisperStatus] = useState<{ installed: boolean; size_mb: number }>({ installed: false, size_mb: 0 });
+  const [whisperDownloading, setWhisperDownloading] = useState(false);
 
   // Flatten all models with their categories
   const allModelList: { key: string; category: string }[] = [];
@@ -53,6 +55,10 @@ export const ModelDownloaderModal: React.FC<ModelDownloaderModalProps> = ({
   useEffect(() => {
     if (!isOpen) return;
 
+    api.getWhisperStatus().then(st => {
+      setWhisperStatus({ installed: st.installed, size_mb: st.size_mb });
+    }).catch(() => {});
+
     allModelList.forEach((m) => {
       api
         .getModelStatus(m.key)
@@ -62,6 +68,33 @@ export const ModelDownloaderModal: React.FC<ModelDownloaderModalProps> = ({
         .catch(() => {});
     });
   }, [isOpen, availableModels]);
+
+  const handleDownloadWhisper = async () => {
+    setWhisperDownloading(true);
+    onNotify('info', 'Whisper İndirmesi Başlatıldı', 'Whisper Large-V3-Turbo modeli (~1.5 GB) indiriliyor...');
+    try {
+      const res = await api.downloadWhisperModel();
+      const taskId = res.task_id;
+      const poll = setInterval(async () => {
+        try {
+          const st = await api.getTaskStatus(taskId);
+          if (st.status === 'completed') {
+            clearInterval(poll);
+            setWhisperDownloading(false);
+            setWhisperStatus({ installed: true, size_mb: 1540 });
+            onNotify('success', 'Whisper Kuruldu!', 'Whisper Large-V3-Turbo modeli kullanıma hazır.');
+          } else if (st.status === 'failed') {
+            clearInterval(poll);
+            setWhisperDownloading(false);
+            onNotify('error', 'İndirme Başarısız', st.error || 'Whisper modeli indirilemedi');
+          }
+        } catch {}
+      }, 1500);
+    } catch (err: any) {
+      setWhisperDownloading(false);
+      onNotify('error', 'İndirme Hatası', err.message);
+    }
+  };
 
   const handleStartDownload = async (modelKey: string) => {
     if (downloadingKeys[modelKey] !== undefined) return;
@@ -198,6 +231,58 @@ export const ModelDownloaderModal: React.FC<ModelDownloaderModalProps> = ({
 
         {/* Models Grid (Scrollable) */}
         <div className="overflow-y-auto custom-scrollbar flex-1 pr-1 space-y-2.5">
+          {/* Featured Whisper Large-V3-Turbo Card */}
+          {(activeCategory === 'all' || activeCategory === 'roformer') && (!searchFilter || 'whisper large-v3-turbo söz karaoke'.includes(searchFilter.toLowerCase())) && (
+            <div className="p-4 rounded-2xl border border-amber-500/30 bg-gradient-to-r from-amber-950/30 via-slate-900/60 to-orange-950/30 flex items-center justify-between gap-4 shadow-lg shadow-amber-500/5">
+              <div className="flex items-center gap-3.5 min-w-0">
+                <div className="p-2.5 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 shrink-0">
+                  <Sparkles className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-black text-white truncate font-outfit">
+                      Whisper Large-V3-Turbo
+                    </span>
+                    <span className="text-[10px] font-mono font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/30 shrink-0">
+                      SÖZ & SENKRON AI (~1.5 GB)
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-slate-400 mt-0.5">
+                    {whisperStatus.installed ? (
+                      <span className="text-emerald-400 font-medium flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3" /> Cihazınızda kurulu ({whisperStatus.size_mb > 0 ? `${whisperStatus.size_mb} MB` : '1.5 GB'})
+                      </span>
+                    ) : (
+                      <span className="text-amber-300/80">Sıfır Hatalı Türkçe Şarkı Sözü & YouTube Karaoke Motoru</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="shrink-0">
+                {whisperDownloading ? (
+                  <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500/20 border border-amber-500/30 text-amber-300 text-xs font-bold font-mono animate-pulse">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>İndiriliyor...</span>
+                  </div>
+                ) : whisperStatus.installed ? (
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>Kurulu</span>
+                  </div>
+                ) : (
+                  <button
+                    onClick={handleDownloadWhisper}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-black text-xs transition-all shadow-md shadow-amber-500/20 active:scale-95 cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Modeli İndir</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           {filteredModels.length === 0 ? (
             <div className="p-12 text-center text-slate-500 text-xs">Model bulunamadı.</div>
           ) : (

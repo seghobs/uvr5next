@@ -285,4 +285,33 @@ export const api = {
     }
     return res.json();
   },
+
+  async getWhisperStatus(): Promise<{
+    model_name: string;
+    key: string;
+    installed: boolean;
+    size_mb: number;
+    path: string;
+  }> {
+    const res = await fetch('/whisper_status');
+    if (!res.ok) {
+      return {
+        model_name: 'Whisper Large-V3-Turbo',
+        key: 'large-v3-turbo',
+        installed: false,
+        size_mb: 0,
+        path: '',
+      };
+    }
+    return res.json();
+  },
+
+  async downloadWhisperModel(): Promise<{ status: string; task_id: string }> {
+    const res = await fetch('/download_whisper', { method: 'POST' });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || err.message || 'Whisper download failed');
+    }
+    return res.json();
+  },
 };

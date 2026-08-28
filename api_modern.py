@@ -1252,6 +1252,64 @@ class LyricsRequest(BaseModel):
     file_name: str = Field(..., min_length=1, max_length=256)
     language: Optional[str] = "tr"
 
+WHISPER_DIR = Path("models/whisper").resolve()
+WHISPER_DIR.mkdir(parents=True, exist_ok=True)
+_whisper_cache = {}
+
+def get_whisper_model():
+    if "model" in _whisper_cache:
+        return _whisper_cache["model"]
+    
+    turbo_dir = WHISPER_DIR / "large-v3-turbo"
+    from faster_whisper import WhisperModel
+    import torch
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    compute_type = "float16" if device == "cuda" else "int8"
+    
+    if (turbo_dir / "model.bin").exists() or (turbo_dir / "model.safetensors").exists():
+        model = WhisperModel(str(turbo_dir), device=device, compute_type=compute_type)
+    else:
+        model = WhisperModel("large-v3-turbo", device=device, compute_type=compute_type, download_root=str(WHISPER_DIR))
+    
+    _whisper_cache["model"] = model
+    return model
+
+@app.get("/whisper_status")
+async def whisper_status_endpoint():
+    turbo_dir = WHISPER_DIR / "large-v3-turbo"
+    installed = False
+    size_mb = 0
+    if turbo_dir.exists():
+        files = list(turbo_dir.glob("*"))
+        if any(f.name in ("model.bin", "model.safetensors") for f in files):
+            installed = True
+            size_mb = round(sum(f.stat().st_size for f in files) / (1024 * 1024), 1)
+    return {
+        "model_name": "Whisper Large-V3-Turbo",
+        "key": "large-v3-turbo",
+        "installed": installed,
+        "size_mb": size_mb,
+        "path": str(turbo_dir)
+    }
+
+@app.post("/download_whisper")
+async def download_whisper_endpoint(background_tasks: BackgroundTasks):
+    task_id = str(uuid.uuid4())
+    
+    def _download_task(t_id):
+        try:
+            tasks[t_id] = {"status": "processing", "progress": 20, "message": "Whisper Large-V3-Turbo indiriliyor (~1.5 GB)..."}
+            from faster_whisper import download_model
+            turbo_dir = WHISPER_DIR / "large-v3-turbo"
+            download_model("large-v3-turbo", output_dir=str(turbo_dir))
+            tasks[t_id] = {"status": "completed", "progress": 100, "message": "Whisper Large-V3-Turbo başarıyla kuruldu!"}
+        except Exception as e:
+            tasks[t_id] = {"status": "failed", "progress": 0, "message": f"İndirme hatası: {e}", "error": str(e)}
+
+    tasks[task_id] = {"status": "processing", "progress": 5, "message": "İndirme başlatılıyor..."}
+    background_tasks.add_task(_download_task, task_id)
+    return {"status": "started", "task_id": task_id}
+
 @app.post("/transcribe_lyrics")
 async def transcribe_lyrics_endpoint(req: LyricsRequest):
     try:
@@ -1262,18 +1320,39 @@ async def transcribe_lyrics_endpoint(req: LyricsRequest):
         segments = []
         whisper_success = False
         try:
-            import whisper
-            model = whisper.load_model("tiny")
-            result = model.transcribe(str(audio_path), language=req.language if req.language else None)
-            for seg in result.get("segments", []):
-                segments.append({
-                    "start": round(seg["start"], 2),
-                    "end": round(seg["end"], 2),
-                    "text": seg["text"].strip()
-                })
-            whisper_success = True
-        except Exception:
-            pass
+            model = get_whisper_model()
+            res_segments, info = model.transcribe(
+                str(audio_path),
+                language=req.language if req.language else None,
+                vad_filter=True,
+                beam_size=5
+            )
+            for seg in res_segments:
+                txt = seg.text.strip()
+                if txt:
+                    segments.append({
+                        "start": round(seg.start, 2),
+                        "end": round(seg.end, 2),
+                        "text": txt
+                    })
+            if segments:
+                whisper_success = True
+        except Exception as e:
+            print(f"[WHISPER TURBO ERROR] {e}")
+            try:
+                import whisper
+                model = whisper.load_model("large-v3-turbo", download_root=str(WHISPER_DIR))
+                result = model.transcribe(str(audio_path), language=req.language if req.language else None)
+                for seg in result.get("segments", []):
+                    segments.append({
+                        "start": round(seg["start"], 2),
+                        "end": round(seg["end"], 2),
+                        "text": seg["text"].strip()
+                    })
+                if segments:
+                    whisper_success = True
+            except Exception as e2:
+                print(f"[WHISPER FALLBACK ERROR] {e2}")
             
         if not whisper_success or not segments:
             import librosa
