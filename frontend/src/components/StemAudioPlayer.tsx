@@ -236,8 +236,11 @@ export const StemAudioPlayer: React.FC<StemAudioPlayerProps> = ({
     };
   }, [stem]);
 
+  const [cleanProgress, setCleanProgress] = useState<number | null>(null);
+
   const handleQuickClean = async (cleanType: 'dereverb' | 'debleed') => {
     setIsQuickCleaning(true);
+    setCleanProgress(10);
     try {
       const res = await api.quickClean({
         file_name: stem,
@@ -249,11 +252,45 @@ export const StemAudioPlayer: React.FC<StemAudioPlayerProps> = ({
           cleanType === 'dereverb' ? '💧 De-Reverb Başlatıldı' : '✂️ De-Bleed Başlatıldı',
           'Arka planda 2. aşama stüdyo temizliği yapılıyor...'
         );
+
+        const pollInterval = setInterval(async () => {
+          try {
+            const statusRes = await api.getTaskStatus(res.task_id);
+            const p = Math.round((statusRes.progress || 0.1) * 100);
+            setCleanProgress(Math.max(10, Math.min(99, p)));
+
+            if (statusRes.status === 'completed') {
+              clearInterval(pollInterval);
+              setIsQuickCleaning(false);
+              setCleanProgress(null);
+
+              const newStems = statusRes.stems || statusRes.results || [];
+              const cleanedFile = newStems[0] || '';
+
+              onNotify(
+                'success',
+                cleanType === 'dereverb' ? '💧 De-Reverb Tamamlandı!' : '✂️ De-Bleed Tamamlandı!',
+                cleanedFile ? `Temizlenen ses: ${cleanedFile}` : 'İkinci aşama stüdyo temizliği başarıyla bitti.'
+              );
+
+              if (cleanedFile && onNewStemCreated) {
+                onNewStemCreated(cleanedFile);
+              }
+            } else if (statusRes.status === 'failed') {
+              clearInterval(pollInterval);
+              setIsQuickCleaning(false);
+              setCleanProgress(null);
+              onNotify('error', 'Temizlik Başarısız', statusRes.error || statusRes.message || 'Hata oluştu');
+            }
+          } catch (err) {
+            // silent polling retry
+          }
+        }, 1200);
       }
     } catch (e: any) {
-      onNotify('error', 'Temizlik Başarısız', e.message);
-    } finally {
       setIsQuickCleaning(false);
+      setCleanProgress(null);
+      onNotify('error', 'Temizlik Başarısız', e.message);
     }
   };
 
@@ -307,7 +344,9 @@ export const StemAudioPlayer: React.FC<StemAudioPlayerProps> = ({
               title="Vokal arkasındaki tüm oda yankısını siler"
             >
               {isQuickCleaning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <span>💧</span>}
-              <span className="hidden sm:inline">Yankıyı Sil</span>
+              <span className="hidden sm:inline">
+                {isQuickCleaning ? `Temizleniyor %${cleanProgress || 10}` : 'Yankıyı Sil'}
+              </span>
             </button>
           )}
 
@@ -319,7 +358,9 @@ export const StemAudioPlayer: React.FC<StemAudioPlayerProps> = ({
               title="Enstrümantaldeki tüm artık vokal fısıltılarını kazır"
             >
               {isQuickCleaning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <span>✂️</span>}
-              <span className="hidden sm:inline">Kalıntıyı Kazı</span>
+              <span className="hidden sm:inline">
+                {isQuickCleaning ? `Kazınıyor %${cleanProgress || 10}` : 'Kalıntıyı Kazı'}
+              </span>
             </button>
           )}
 

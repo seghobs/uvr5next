@@ -204,7 +204,10 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ file_name: fileName }),
     });
-    if (!res.ok) throw new Error('Audio analysis failed');
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || err.message || 'Audio analysis failed');
+    }
     return res.json();
   },
 
@@ -221,7 +224,10 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ file_name: fileName, language }),
     });
-    if (!res.ok) throw new Error('Lyrics transcription failed');
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || err.message || 'Lyrics transcription failed');
+    }
     return res.json();
   },
 
@@ -235,7 +241,10 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    if (!res.ok) throw new Error('Quick clean request failed');
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || err.message || 'Quick clean request failed');
+    }
     return res.json();
   },
 
@@ -250,7 +259,10 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    if (!res.ok) throw new Error('Visualizer generation failed');
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || err.message || 'Visualizer generation failed');
+    }
     return res.json();
   },
 };

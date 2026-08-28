@@ -1169,15 +1169,30 @@ async def start_batch(req: BatchRequest, background_tasks: BackgroundTasks):
     background_tasks.add_task(run_batch_task, task_id, req)
     return {"task_id": task_id}
 
+def _find_audio_file(file_name: str) -> Path:
+    """Robustly locate audio file in outputs, uploads, ytdl or cwd."""
+    clean_name = Path(file_name).name
+    candidates = [
+        OUTPUT_DIR / clean_name,
+        UPLOAD_DIR / clean_name,
+        YTL_DIR / clean_name,
+        Path(file_name)
+    ]
+    for cand in candidates:
+        try:
+            if cand.exists() and cand.is_file():
+                return cand.resolve()
+        except:
+            continue
+    raise HTTPException(status_code=404, detail=f"Ses dosyası bulunamadı: '{clean_name}'")
+
 class AnalyzeAudioRequest(BaseModel):
     file_name: str = Field(..., min_length=1, max_length=256)
 
 @app.post("/analyze_audio")
 async def analyze_audio_endpoint(req: AnalyzeAudioRequest):
     try:
-        audio_path = _safe_join_and_check(OUTPUT_DIR, req.file_name)
-        if not audio_path.exists():
-            raise HTTPException(status_code=404, detail="File not found")
+        audio_path = _find_audio_file(req.file_name)
             
         import librosa
         import numpy as np
@@ -1240,7 +1255,7 @@ class LyricsRequest(BaseModel):
 @app.post("/transcribe_lyrics")
 async def transcribe_lyrics_endpoint(req: LyricsRequest):
     try:
-        audio_path = _safe_join_and_check(OUTPUT_DIR, req.file_name)
+        audio_path = _find_audio_file(req.file_name)
         if not audio_path.exists():
             raise HTTPException(status_code=404, detail="Audio file not found")
             
@@ -1347,9 +1362,12 @@ class QuickCleanRequest(BaseModel):
 
 @app.post("/quick_clean")
 async def quick_clean_endpoint(req: QuickCleanRequest, background_tasks: BackgroundTasks):
-    audio_path = _safe_join_and_check(OUTPUT_DIR, req.file_name)
-    if not audio_path.exists():
-        raise HTTPException(status_code=404, detail="File not found")
+    try:
+        audio_path = _find_audio_file(req.file_name)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
         
     model_key = "BS-Roformer-De-Reverb" if req.clean_type == "dereverb" else "MelBand Roformer Kim | Inst V2 by Unwa"
     model_type = "roformer"
@@ -1379,9 +1397,7 @@ class VisualizerRequest(BaseModel):
 @app.post("/generate_visualizer")
 async def generate_visualizer_endpoint(req: VisualizerRequest):
     try:
-        audio_path = _safe_join_and_check(OUTPUT_DIR, req.file_name)
-        if not audio_path.exists():
-            raise HTTPException(status_code=404, detail="Audio file not found")
+        audio_path = _find_audio_file(req.file_name)
             
         out_video_name = f"Visualizer_{Path(req.file_name).stem}_{req.theme}_{int(time.time())}.mp4"
         out_video_path = _safe_join_and_check(OUTPUT_DIR, out_video_name)
