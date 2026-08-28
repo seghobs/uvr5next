@@ -63,6 +63,22 @@ const nextConfig = {
         source: '/leaderboard',
         destination: 'http://127.0.0.1:8000/leaderboard',
       },
+      {
+        source: '/analyze_audio',
+        destination: 'http://127.0.0.1:8000/analyze_audio',
+      },
+      {
+        source: '/transcribe_lyrics',
+        destination: 'http://127.0.0.1:8000/transcribe_lyrics',
+      },
+      {
+        source: '/quick_clean',
+        destination: 'http://127.0.0.1:8000/quick_clean',
+      },
+      {
+        source: '/generate_visualizer',
+        destination: 'http://127.0.0.1:8000/generate_visualizer',
+      },
     ];
   },
 };
