@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Video,
   X,
@@ -44,6 +45,11 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
   onNotify,
 }) => {
   const t = (key: string) => getTranslation(lang, key);
+
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const [segments, setSegments] = useState<LyricSegment[]>([]);
   const [loadingLyrics, setLoadingLyrics] = useState(false);
@@ -174,10 +180,10 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
     }
   };
 
-  if (!isOpen) return null;
+  if (!isOpen || !mounted) return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-2xl animate-fade-in">
+  return createPortal(
+    <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-2xl animate-fade-in">
       <div className="relative w-full max-w-4xl bg-slate-900/95 border border-white/15 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
         {/* Modal Header */}
         <div className="p-5 border-b border-white/10 flex items-center justify-between bg-white/[0.02]">
@@ -570,6 +576,7 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

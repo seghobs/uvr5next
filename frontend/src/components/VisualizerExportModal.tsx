@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Video,
   X,
@@ -34,13 +35,18 @@ export const VisualizerExportModal: React.FC<VisualizerExportModalProps> = ({
   onNotify,
 }) => {
   const t = (key: string) => getTranslation(lang, key);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const [aspectRatio, setAspectRatio] = useState<'9:16' | '16:9'>('9:16');
   const [theme, setTheme] = useState<'neon' | 'gold' | 'cyberpunk'>('neon');
   const [title, setTitle] = useState(fileName.replace(/\.[^/.]+$/, ''));
   const [rendering, setRendering] = useState(false);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
 
-  if (!isOpen) return null;
+  if (!isOpen || !mounted) return null;
 
   const handleGenerate = async () => {
     setRendering(true);
@@ -63,8 +69,8 @@ export const VisualizerExportModal: React.FC<VisualizerExportModalProps> = ({
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xl animate-fade-in">
+  return createPortal(
+    <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xl animate-fade-in">
       <div className="relative w-full max-w-lg bg-slate-900/90 border border-white/10 rounded-3xl shadow-2xl overflow-hidden flex flex-col">
         {/* Header */}
         <div className="p-5 border-b border-white/10 flex items-center justify-between bg-white/[0.02]">
@@ -267,6 +273,7 @@ export const VisualizerExportModal: React.FC<VisualizerExportModalProps> = ({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

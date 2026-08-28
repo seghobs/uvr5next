@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Mic2,
   X,
@@ -42,6 +43,11 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
   onNotify,
 }) => {
   const t = (key: string) => getTranslation(lang, key);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const [loading, setLoading] = useState(false);
   const [segments, setSegments] = useState<LyricSegment[]>([]);
   const [lrcContent, setLrcContent] = useState('');
@@ -110,8 +116,10 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
     onNotify('info', 'Kopyalandı', 'Tüm şarkı sözleri panoya kopyalandı.');
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xl animate-fade-in">
+  if (!isOpen || !mounted) return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xl animate-fade-in">
       <div className="relative w-full max-w-2xl bg-slate-900/90 border border-white/10 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
         {/* Header */}
         <div className="p-5 border-b border-white/10 flex items-center justify-between bg-white/[0.02]">
@@ -278,6 +286,7 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
