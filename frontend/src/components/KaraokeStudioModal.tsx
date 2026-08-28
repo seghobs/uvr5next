@@ -141,7 +141,7 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
     const audio = audioRef.current;
     audio.src = `/output/${encodeURIComponent(audioFile)}`;
     audio.currentTime = seg.start;
-    audio.play().catch(console.error);
+    audio.play().catch(() => {});
     setPlayingIndex(index);
 
     const checkInterval = setInterval(() => {

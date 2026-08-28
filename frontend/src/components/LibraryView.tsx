@@ -146,13 +146,13 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
       if (isPlaying) {
         audio.pause();
       } else {
-        audio.play().catch(console.error);
+        audio.play().catch(() => {});
       }
     } else {
       audio.pause();
       audio.src = `/output/${encodeURIComponent(stem)}`;
       audio.load();
-      audio.play().catch(console.error);
+      audio.play().catch(() => {});
       setActiveStem(stem);
       setCurrentTime(0);
     }
