@@ -949,9 +949,22 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
                 const hasSustain = (seg.end - seg.start) >= 2.5;
 
                 return (
-                  <div
-                    key={idx}
-                    ref={(el) => { rowRefs.current[idx] = el; }}
+                  <React.Fragment key={idx}>
+                    {/* Breath / Es Pause Indicator between lines */}
+                    {idx > 0 && segments[idx - 1] && (seg.start - segments[idx - 1].end) >= 1.5 && (
+                      <div className="flex items-center justify-center gap-2 py-1 my-0.5 select-none">
+                        <div className="h-px flex-1 bg-gradient-to-r from-transparent via-emerald-500/20 to-transparent" />
+                        <span className="text-[10px] font-mono font-bold text-emerald-400/90 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 rounded-full flex items-center gap-1.5 shadow-sm">
+                          <span>💨 Nefes / Es Arası:</span>
+                          <span className="text-emerald-300 font-black">{(seg.start - segments[idx - 1].end).toFixed(1)}s</span>
+                          <span className="text-slate-400 text-[9px]">• Hazır Ol</span>
+                        </span>
+                        <div className="h-px flex-1 bg-gradient-to-r from-transparent via-emerald-500/20 to-transparent" />
+                      </div>
+                    )}
+
+                    <div
+                      ref={(el) => { rowRefs.current[idx] = el; }}
                     onClick={() => {
                       if (isLiveSyncMode) {
                         setLiveSyncIndex(idx);
@@ -1152,7 +1165,8 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
                       </div>
                     </div>
                   </div>
-                );
+                </React.Fragment>
+              );
               })
             )}
           </div>
