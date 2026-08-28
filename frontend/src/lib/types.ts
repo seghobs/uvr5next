@@ -100,6 +100,7 @@ export interface LyricSegment {
   start: number;
   end: number;
   text: string;
+  words?: Array<{ word: string; start: number; end: number }>;
 }
 
 export interface LyricsResponse {

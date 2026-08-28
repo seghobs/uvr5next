@@ -1370,15 +1370,27 @@ async def transcribe_lyrics_endpoint(req: LyricsRequest):
                 str(target_path),
                 language=req.language if req.language else None,
                 vad_filter=True,
-                beam_size=5
+                beam_size=5,
+                word_timestamps=True
             )
             for seg in res_segments:
                 txt = seg.text.strip()
                 if txt:
+                    words_list = []
+                    if hasattr(seg, 'words') and seg.words:
+                        for w in seg.words:
+                            w_txt = w.word.strip()
+                            if w_txt:
+                                words_list.append({
+                                    "word": w_txt,
+                                    "start": round(w.start, 2),
+                                    "end": round(w.end, 2)
+                                })
                     segments.append({
                         "start": round(seg.start, 2),
                         "end": round(seg.end, 2),
-                        "text": txt
+                        "text": txt,
+                        "words": words_list
                     })
         except Exception as e:
             print(f"[WHISPER TURBO ERROR] {e}")
@@ -1392,7 +1404,8 @@ async def transcribe_lyrics_endpoint(req: LyricsRequest):
                         segments.append({
                             "start": round(seg["start"], 2),
                             "end": round(seg["end"], 2),
-                            "text": txt
+                            "text": txt,
+                            "words": []
                         })
             except Exception as e2:
                 print(f"[WHISPER FALLBACK ERROR] {e2}")
@@ -1523,10 +1536,16 @@ async def generate_visualizer_endpoint(req: VisualizerRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+class WordModel(BaseModel):
+    word: str
+    start: float
+    end: float
+
 class LyricSegmentModel(BaseModel):
     start: float
     end: float
     text: str
+    words: Optional[List[WordModel]] = None
 
 class KaraokeVideoRequest(BaseModel):
     inst_file: str = Field(..., min_length=1, max_length=256)
@@ -1547,24 +1566,28 @@ async def generate_karaoke_video_endpoint(req: KaraokeVideoRequest):
         # Color palette per theme
         if req.theme == "gold":
             primary_color = "&H0000D7FF"     # Glowing Gold BGR (Active Karaoke Fill)
-            upcoming_color = "&H70C0C0C0"    # Soft Silver
+            upcoming_color = "&H70C0C0C0"    # Soft Frosted Silver
+            break_color = "&H0000D7FF"
             wave_color = "#f59e0b|#fbbf24|#d97706"
-            bg_color = "0x080C14"
+            bg_color = "0x070A12"
         elif req.theme == "cyberpunk":
             primary_color = "&H00D946EF"     # Glowing Neon Magenta (Active Karaoke Fill)
             upcoming_color = "&H70C0C0C0"
+            break_color = "&H00D946EF"
             wave_color = "#ec4899|#c084fc|#8b5cf6"
-            bg_color = "0x0A0514"
+            bg_color = "0x090514"
         elif req.theme == "emerald":
             primary_color = "&H0034D399"     # Emerald Green (Active Karaoke Fill)
             upcoming_color = "&H70C0C0C0"
+            break_color = "&H0034D399"
             wave_color = "#10b981|#34d399|#059669"
-            bg_color = "0x050E0B"
+            bg_color = "0x040D0A"
         else: # neon
             primary_color = "&H00FFFF00"     # Cyan Blue (Active Karaoke Fill)
             upcoming_color = "&H70C0C0C0"
+            break_color = "&H00FFFF00"
             wave_color = "#06b6d4|#38bdf8|#3b82f6"
-            bg_color = "0x070B18"
+            bg_color = "0x060914"
 
         def to_ass_time(sec: float) -> str:
             sec = max(0.0, sec)
@@ -1574,10 +1597,10 @@ async def generate_karaoke_video_endpoint(req: KaraokeVideoRequest):
             cs = int((sec - int(sec)) * 100)
             return f"{hrs}:{mins:02d}:{secs:02d}.{cs:02d}"
 
-        font_size_active = 68 if is_vertical else 62
+        font_size_active = 68 if is_vertical else 64
         font_size_upcoming = 42 if is_vertical else 38
-        margin_v_active = 750 if is_vertical else 420
-        margin_v_upcoming = 620 if is_vertical else 310
+        margin_v_active = 780 if is_vertical else 440
+        margin_v_upcoming = 640 if is_vertical else 320
 
         ass_lines = [
             "[Script Info]",
@@ -1589,6 +1612,7 @@ async def generate_karaoke_video_endpoint(req: KaraokeVideoRequest):
             "[V4+ Styles]",
             "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
             f"Style: Title, Arial, 32, &H00FFFFFF, &H00000000, &H00000000, &H80000000, -1, 0, 0, 0, 100, 100, 2, 0, 1, 3, 2, 8, 60, 60, 50, 1",
+            f"Style: BreakNotice, Arial, 38, {break_color}, &H00000000, &H00000000, &H80000000, 0, -1, 0, 0, 100, 100, 2, 0, 1, 3, 2, 2, 80, 80, {margin_v_active}, 1",
             f"Style: Active, Arial, {font_size_active}, {primary_color}, &H00FFFFFF, &H00000000, &H90000000, -1, 0, 0, 0, 100, 100, 1, 0, 1, 5, 4, 2, 80, 80, {margin_v_active}, 1",
             f"Style: Upcoming, Arial, {font_size_upcoming}, {upcoming_color}, &H00000000, &H00000000, &H80000000, 0, 0, 0, 0, 100, 100, 1, 0, 1, 3, 2, 2, 80, 80, {margin_v_upcoming}, 1",
             "",
@@ -1602,20 +1626,49 @@ async def generate_karaoke_video_endpoint(req: KaraokeVideoRequest):
         for idx, seg in enumerate(req.segments):
             st = to_ass_time(seg.start)
             en = to_ass_time(seg.end)
-            dur_cs = max(10, int((seg.end - seg.start) * 100))
-            words = seg.text.strip().split()
-            if not words:
-                continue
             
-            # Word-by-word progressive karaoke wipe fill ({\kf<duration>})
-            total_chars = sum(len(w) for w in words) or 1
-            w_tags = []
-            for w in words:
-                w_cs = max(10, int(dur_cs * (len(w) / total_chars)))
-                w_tags.append(f"{{\\kf{w_cs}}}{w}")
-            active_karaoke_text = " ".join(w_tags)
+            # Show musical break indication if there is a long pause (> 3.5s)
+            if idx == 0 and seg.start >= 4.0:
+                intro_st = to_ass_time(1.0)
+                intro_en = to_ass_time(seg.start - 0.5)
+                ass_lines.append(f"Dialogue: 0,{intro_st},{intro_en},BreakNotice,,0,0,0,,♪ (Enstrümantal Giriş / Intro) ♪")
+            elif idx > 0:
+                prev_end = req.segments[idx - 1].end
+                if seg.start - prev_end >= 4.0:
+                    solo_st = to_ass_time(prev_end + 0.5)
+                    solo_en = to_ass_time(seg.start - 0.5)
+                    ass_lines.append(f"Dialogue: 0,{solo_st},{solo_en},BreakNotice,,0,0,0,,♪ (Müzikal Solo / Ara Nağme) ♪")
+
+            # Word-level pause-aware karaoke tag generator
+            if seg.words and len(seg.words) > 0:
+                cur_t = seg.start
+                w_tags = []
+                for w in seg.words:
+                    gap = round(w.start - cur_t, 2)
+                    if gap >= 0.08:
+                        # Freeze the color during the pause/es (NO filling during silence!)
+                        gap_cs = int(gap * 100)
+                        w_tags.append(f"{{\\k{gap_cs}}}")
+                    
+                    dur = max(0.1, round(w.end - w.start, 2))
+                    dur_cs = int(dur * 100)
+                    # Smooth progressive fill only while this specific word is sung
+                    w_tags.append(f"{{\\kf{dur_cs}}}{w.word} ")
+                    cur_t = w.end
+                active_karaoke_text = "".join(w_tags).strip()
+            else:
+                dur_cs = max(10, int((seg.end - seg.start) * 100))
+                words = seg.text.strip().split()
+                if not words:
+                    continue
+                total_chars = sum(len(w) for w in words) or 1
+                w_tags = []
+                for w in words:
+                    w_cs = max(10, int(dur_cs * (len(w) / total_chars)))
+                    w_tags.append(f"{{\\kf{w_cs}}}{w}")
+                active_karaoke_text = " ".join(w_tags)
             
-            # Active line with smooth karaoke color fill
+            # Active line with precise word timing
             ass_lines.append(f"Dialogue: 1,{st},{en},Active,,0,0,0,,{active_karaoke_text}")
             
             # Upcoming Line Preview below active line
@@ -1634,7 +1687,7 @@ async def generate_karaoke_video_endpoint(req: KaraokeVideoRequest):
 
         freq_w = 900 if is_vertical else 1300
         freq_h = 200 if is_vertical else 150
-        freq_y = 350 if is_vertical else 150
+        freq_y = 350 if is_vertical else 140
 
         filter_complex = (
             f"[0:a]showfreqs=s={freq_w}x{freq_h}:mode=bar:ascale=log:fscale=log:colors={wave_color}[freqs];"
