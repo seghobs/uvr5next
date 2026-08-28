@@ -23,6 +23,9 @@ import {
   RotateCcw,
   FastForward,
   Repeat,
+  Radio,
+  Undo2,
+  ArrowRight,
 } from 'lucide-react';
 import { Language, LyricSegment } from '@/lib/types';
 import { getTranslation } from '@/lib/translations';
@@ -81,12 +84,20 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
   const [activePlayingIndex, setActivePlayingIndex] = useState<number | null>(null);
   const [hoverTime, setHoverTime] = useState<number | null>(null);
 
+  // Smule Spacebar Live Synchronization State
+  const [isLiveSyncMode, setIsLiveSyncMode] = useState(false);
+  const [liveSyncIndex, setLiveSyncIndex] = useState<number>(0);
+  const [isSpacePressed, setIsSpacePressed] = useState(false);
+  const [spacePressStartTime, setSpacePressStartTime] = useState<number | null>(null);
+  const rowRefs = useRef<{ [key: number]: HTMLDivElement | null }>({});
+
   // Stop audio on close
   useEffect(() => {
     if (!isOpen && audioRef.current) {
       audioRef.current.pause();
       setIsPlaying(false);
       setActivePlayingIndex(null);
+      setIsLiveSyncMode(false);
     }
   }, [isOpen]);
 
@@ -131,10 +142,14 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
     const handleEnded = () => {
       setIsPlaying(false);
       setActivePlayingIndex(null);
+      setIsSpacePressed(false);
     };
 
     const handlePlayEvent = () => setIsPlaying(true);
-    const handlePauseEvent = () => setIsPlaying(false);
+    const handlePauseEvent = () => {
+      setIsPlaying(false);
+      setIsSpacePressed(false);
+    };
 
     audio.addEventListener('loadedmetadata', handleLoadedMetadata);
     audio.addEventListener('timeupdate', handleTimeUpdate);
@@ -161,6 +176,150 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
       }
     }
   }, [isOpen, instStem, vocalStem]);
+
+  // Smule Spacebar Sync Keyboard Listener
+  useEffect(() => {
+    if (!isOpen || activeTab !== 'lyrics') return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeTag = document.activeElement?.tagName?.toLowerCase();
+      const isTypingInInput = activeTag === 'input' || activeTag === 'textarea';
+
+      // SPACE KEY: Handle Live Sync or Play/Pause
+      if (e.code === 'Space' && !e.repeat) {
+        if (isTypingInInput) {
+          return; // Allow normal space typing inside input
+        }
+        e.preventDefault();
+
+        if (isLiveSyncMode) {
+          // In Smule Live Sync Mode: Space down records Start Time
+          if (!audioRef.current) return;
+          if (audioRef.current.paused) {
+            audioRef.current.play().catch(() => {});
+          }
+
+          const curT = Number(audioRef.current.currentTime.toFixed(2));
+          setIsSpacePressed(true);
+          setSpacePressStartTime(curT);
+
+          if (segments[liveSyncIndex]) {
+            setSegments((prev) => {
+              const next = [...prev];
+              if (next[liveSyncIndex]) {
+                next[liveSyncIndex] = {
+                  ...next[liveSyncIndex],
+                  start: curT,
+                };
+              }
+              return next;
+            });
+          }
+        } else {
+          // Normal mode: Space toggles Play/Pause
+          toggleMasterPlay();
+        }
+      } else if (isLiveSyncMode && !isTypingInInput) {
+        if (e.code === 'Backspace') {
+          e.preventDefault();
+          // Step back to previous line to re-time it
+          handleLiveSyncPrev();
+        } else if (e.code === 'ArrowRight' || e.code === 'Tab') {
+          e.preventDefault();
+          handleLiveSyncNext();
+        } else if (e.code === 'Escape') {
+          setIsLiveSyncMode(false);
+          onNotify('info', 'Canlı Senkron Kapandı', 'Smule senkron modundan çıkıldı.');
+        }
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      const activeTag = document.activeElement?.tagName?.toLowerCase();
+      const isTypingInInput = activeTag === 'input' || activeTag === 'textarea';
+
+      if (e.code === 'Space' && isLiveSyncMode && !isTypingInInput) {
+        e.preventDefault();
+        if (!audioRef.current) return;
+
+        const curT = Number(audioRef.current.currentTime.toFixed(2));
+        setIsSpacePressed(false);
+
+        if (segments[liveSyncIndex]) {
+          setSegments((prev) => {
+            const next = [...prev];
+            if (next[liveSyncIndex]) {
+              const startT = Number(next[liveSyncIndex].start) || 0;
+              const endT = Math.max(Number((startT + 0.4).toFixed(2)), curT);
+              next[liveSyncIndex] = {
+                ...next[liveSyncIndex],
+                end: endT,
+              };
+              triggerAutoSave(next);
+            }
+            return next;
+          });
+
+          // Auto-advance to next line
+          const nextIdx = liveSyncIndex + 1;
+          if (nextIdx < segments.length) {
+            setLiveSyncIndex(nextIdx);
+            rowRefs.current[nextIdx]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          } else {
+            onNotify('success', 'Tüm Sözler Senkronlandı! 🎉', 'Şarkıdaki tüm satırların zamanlaması başarıyla kaydedildi.');
+          }
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [isOpen, activeTab, isLiveSyncMode, liveSyncIndex, segments, isPlaying]);
+
+  const handleLiveSyncPrev = () => {
+    if (liveSyncIndex > 0) {
+      const prevIdx = liveSyncIndex - 1;
+      setLiveSyncIndex(prevIdx);
+      if (segments[prevIdx] && audioRef.current) {
+        // Rewind slightly before the previous line
+        const jumpTime = Math.max(0, segments[prevIdx].start - 1.0);
+        seekTo(jumpTime);
+      }
+      rowRefs.current[prevIdx]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  };
+
+  const handleLiveSyncNext = () => {
+    if (liveSyncIndex < segments.length - 1) {
+      const nextIdx = liveSyncIndex + 1;
+      setLiveSyncIndex(nextIdx);
+      rowRefs.current[nextIdx]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  };
+
+  const startLiveSyncMode = (targetIndex = 0) => {
+    setIsLiveSyncMode(true);
+    setLiveSyncIndex(targetIndex);
+    setIsSpacePressed(false);
+
+    if (segments[targetIndex] && audioRef.current) {
+      const startAt = Math.max(0, segments[targetIndex].start - 0.5);
+      seekTo(startAt);
+      if (audioRef.current.paused) {
+        audioRef.current.play().catch(() => {});
+      }
+    } else if (audioRef.current && audioRef.current.paused) {
+      audioRef.current.play().catch(() => {});
+    }
+
+    rowRefs.current[targetIndex]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    onNotify('info', 'Smule Canlı Senkron Modu Aktif 🎙️', 'Şarkı çalarken söz başladığında Space tuşuna basılı tutun, bittiğinde bırakın!');
+  };
 
   const saveToDatabase = async (segmentsToSave: LyricSegment[], notifyUser = false) => {
     const sourceFile = vocalStem || instStem;
@@ -391,6 +550,8 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
 
   if (!isOpen || !mounted) return null;
 
+  const currentSyncSegment = segments[liveSyncIndex];
+
   return createPortal(
     <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-2xl animate-fade-in">
       <div className="relative w-full max-w-4xl bg-slate-900/95 border border-white/15 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
@@ -457,6 +618,21 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Smule Spacebar Live Sync Toggle Button */}
+            <button
+              onClick={() => isLiveSyncMode ? setIsLiveSyncMode(false) : startLiveSyncMode(liveSyncIndex)}
+              className={cn(
+                'px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all shadow-md active:scale-95 border',
+                isLiveSyncMode
+                  ? 'bg-gradient-to-r from-pink-500/30 to-purple-500/30 border-pink-500/60 text-pink-200 animate-pulse'
+                  : 'bg-white/5 hover:bg-pink-500/10 text-pink-300 border-pink-500/30'
+              )}
+              title="Smule gibi şarkı çalarken Space tuşuna basılı tutarak sözleri canlı senkronlayın"
+            >
+              <Radio className={cn('w-3.5 h-3.5', isLiveSyncMode ? 'text-pink-400 animate-spin' : 'text-pink-400')} />
+              <span>{isLiveSyncMode ? 'Canlı Space Aktif' : '🎙️ Smule Space Senkron'}</span>
+            </button>
+
             {isSavingDb ? (
               <span className="px-2.5 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-bold flex items-center gap-1.5">
                 <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
@@ -490,6 +666,7 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
             <button
               onClick={() => handleAddSegment()}
               className="px-3 py-1.5 rounded-xl bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95"
+              title="En başa yeni boş satır ekle"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Satır Ekle</span>
@@ -647,6 +824,96 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
               </div>
             </div>
 
+            {/* Smule Live Spacebar HUD Banner */}
+            {isLiveSyncMode && (
+              <div className="p-4 rounded-2xl bg-gradient-to-r from-pink-950/80 via-purple-950/80 to-slate-950/80 border border-pink-500/40 shadow-xl shadow-pink-500/10 space-y-3 animate-fade-in">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <span className="relative flex h-3 w-3">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-pink-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-3 w-3 bg-pink-500"></span>
+                    </span>
+                    <h4 className="text-xs font-black text-pink-300 tracking-wide uppercase font-mono">
+                      Smule Canlı Space Senkronizasyonu
+                    </h4>
+                    <span className="text-[10px] font-bold text-pink-400/80 bg-pink-500/10 px-2 py-0.5 rounded-md border border-pink-500/20">
+                      Satır #{liveSyncIndex + 1} / {segments.length}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleLiveSyncPrev}
+                      disabled={liveSyncIndex === 0}
+                      className="px-2.5 py-1 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-bold flex items-center gap-1 disabled:opacity-30 transition-all"
+                      title="Önceki satıra dön ve tekrar kaydet (Backspace)"
+                    >
+                      <Undo2 className="w-3.5 h-3.5" />
+                      <span>Geri Al (Backspace)</span>
+                    </button>
+
+                    <button
+                      onClick={handleLiveSyncNext}
+                      disabled={liveSyncIndex >= segments.length - 1}
+                      className="px-2.5 py-1 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-bold flex items-center gap-1 disabled:opacity-30 transition-all"
+                      title="Bu satırı atla ve sonrakine geç (Tab / Sağ Ok)"
+                    >
+                      <span>Atla</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+
+                    <button
+                      onClick={() => setIsLiveSyncMode(false)}
+                      className="px-2.5 py-1 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 text-xs font-bold transition-all border border-rose-500/30"
+                    >
+                      Kapat (Esc)
+                    </button>
+                  </div>
+                </div>
+
+                {/* Real-time Instructions & Active Line Preview */}
+                <div className={cn(
+                  "p-3 rounded-xl border transition-all flex items-center justify-between gap-4",
+                  isSpacePressed
+                    ? "bg-emerald-500/20 border-emerald-500/60 shadow-lg shadow-emerald-500/20"
+                    : "bg-black/40 border-pink-500/30"
+                )}>
+                  <div className="flex items-center gap-3">
+                    <div className={cn(
+                      "w-8 h-8 rounded-xl flex items-center justify-center font-mono font-black text-xs shrink-0 shadow-md",
+                      isSpacePressed
+                        ? "bg-emerald-400 text-slate-950 animate-pulse"
+                        : "bg-pink-500/20 text-pink-300 border border-pink-500/40"
+                    )}>
+                      {isSpacePressed ? '🔴' : 'SPACE'}
+                    </div>
+                    <div>
+                      <div className="text-[11px] font-bold text-slate-400">
+                        {isSpacePressed
+                          ? 'SÖZ KAYDEDİLİYOR (Başlangıç: ' + formatPrecisionTime(spacePressStartTime || currentTime) + ') -> BİTTİĞİNDE SPACE TUŞUNU BIRAKIN!'
+                          : 'ŞARKI ÇALARKEN SÖZ BAŞLADIĞINDA SPACE TUŞUNA BASILI TUTUN:'}
+                      </div>
+                      <div className="text-sm font-black text-white mt-0.5">
+                        "{currentSyncSegment ? currentSyncSegment.text : 'Söz Kalmadı'}"
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="shrink-0 text-right font-mono text-xs">
+                    {isSpacePressed ? (
+                      <span className="text-emerald-300 font-black text-sm animate-pulse">
+                        Kaydediliyor... ⏺️
+                      </span>
+                    ) : (
+                      <span className="text-pink-300 font-bold">
+                        Basılmayı Bekliyor ⏳
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* List of Lyric Rows */}
             {loadingLyrics ? (
               <div className="h-64 flex flex-col items-center justify-center gap-3 text-slate-400">
@@ -671,13 +938,27 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
                 const rowDuration = Math.max(0.1, seg.end - seg.start);
                 const rowProgressPercent = isRowActive ? ((currentTime - seg.start) / rowDuration) * 100 : 0;
                 const isLoopingThis = loopLineIndex === idx;
+                const isLiveTarget = isLiveSyncMode && liveSyncIndex === idx;
 
                 return (
                   <div
                     key={idx}
+                    ref={(el) => { rowRefs.current[idx] = el; }}
+                    onClick={() => {
+                      if (isLiveSyncMode) {
+                        setLiveSyncIndex(idx);
+                        if (audioRef.current) {
+                          seekTo(Math.max(0, seg.start - 0.5));
+                        }
+                      }
+                    }}
                     className={cn(
-                      "relative p-3.5 rounded-2xl border transition-all group overflow-hidden",
-                      isRowActive
+                      "relative p-3.5 rounded-2xl border transition-all group overflow-hidden cursor-pointer",
+                      isLiveTarget
+                        ? isSpacePressed
+                          ? "bg-emerald-500/15 border-emerald-400 shadow-xl shadow-emerald-500/20 ring-2 ring-emerald-400/50"
+                          : "bg-pink-500/10 border-pink-400 shadow-xl shadow-pink-500/20 ring-2 ring-pink-400/40"
+                        : isRowActive
                         ? "bg-amber-500/10 border-amber-500/60 shadow-lg shadow-amber-500/10"
                         : activePlayingIndex === idx
                         ? "bg-slate-950/90 border-amber-500/40"
@@ -695,7 +976,10 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
                     <div className="relative z-10 flex flex-col sm:flex-row sm:items-center gap-3">
                       {/* Play Line Button */}
                       <button
-                        onClick={() => playLine(idx)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          playLine(idx);
+                        }}
                         className={cn(
                           'w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-transform active:scale-90 shadow-md',
                           activePlayingIndex === idx && isPlaying
@@ -713,7 +997,10 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
 
                       {/* Loop Line Toggle */}
                       <button
-                        onClick={() => toggleLoopLine(idx)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleLoopLine(idx);
+                        }}
                         className={cn(
                           'p-2 rounded-xl text-xs font-bold shrink-0 transition-all active:scale-90',
                           isLoopingThis
@@ -726,7 +1013,7 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
                       </button>
 
                       {/* Precision Timing Inputs & Steppers */}
-                      <div className="flex items-center gap-2 shrink-0">
+                      <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
                         {/* Start Timing Box */}
                         <div className="space-y-1">
                           <div className="flex items-center justify-between gap-1">
@@ -805,14 +1092,16 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
                       </div>
 
                       {/* Text Input */}
-                      <div className="flex-1">
+                      <div className="flex-1" onClick={(e) => e.stopPropagation()}>
                         <input
                           type="text"
                           value={seg.text}
                           onChange={(e) => handleSegmentChange(idx, 'text', e.target.value)}
                           className={cn(
                             "w-full p-2.5 rounded-xl border text-xs font-semibold placeholder-slate-500 focus:outline-none focus:border-amber-500 transition-all",
-                            isRowActive
+                            isLiveTarget
+                              ? "bg-slate-900 border-pink-400 text-pink-200 font-bold"
+                              : isRowActive
                               ? "bg-slate-900/90 border-amber-500/50 text-amber-200"
                               : "bg-slate-900/90 border-white/10 text-white"
                           )}
@@ -821,7 +1110,7 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
                       </div>
 
                       {/* Row Actions */}
-                      <div className="flex items-center gap-1 shrink-0 self-end sm:self-center">
+                      <div className="flex items-center gap-1 shrink-0 self-end sm:self-center" onClick={(e) => e.stopPropagation()}>
                         <button
                           onClick={() => handleAddSegment(idx)}
                           className="p-2 rounded-xl bg-white/[0.03] hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
