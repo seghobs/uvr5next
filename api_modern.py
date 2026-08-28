@@ -38,7 +38,7 @@ YTL_DIR = Path("ytdl").resolve()
 FAVORITES_DB_PATH = Path("assets/favorites.db").resolve()
 os.makedirs(YTL_DIR, exist_ok=True)
 
-# Initialize SQLite database for model favorites
+# Initialize SQLite database for model favorites, lyrics cache, and project sessions
 def init_favorites_db():
     try:
         with sqlite3.connect(str(FAVORITES_DB_PATH)) as conn:
@@ -48,11 +48,151 @@ def init_favorites_db():
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS lyrics (
+                    file_key TEXT PRIMARY KEY,
+                    file_name TEXT NOT NULL,
+                    language TEXT DEFAULT 'tr',
+                    segments_json TEXT NOT NULL,
+                    lrc_content TEXT,
+                    srt_content TEXT,
+                    is_edited INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS projects (
+                    project_id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    data_json TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
             conn.commit()
     except Exception as e:
-        print(f"Error initializing favorites DB: {e}")
+        print(f"Error initializing SQLite DB: {e}")
 
 init_favorites_db()
+
+def _get_lyrics_key(file_name: str) -> str:
+    base = Path(file_name).stem.lower().strip()
+    return base
+
+def get_saved_lyrics(file_name: str) -> Optional[dict]:
+    init_favorites_db()
+    key = _get_lyrics_key(file_name)
+    candidates = [key]
+    if "instrumental" in key:
+        candidates.append(key.replace("instrumental", "vocals"))
+        candidates.append(key.replace("instrumental", "vocal"))
+    elif "inst" in key:
+        candidates.append(key.replace("inst", "vocals"))
+        candidates.append(key.replace("inst", "vocal"))
+    elif "vocals" in key:
+        candidates.append(key.replace("vocals", "instrumental"))
+        candidates.append(key.replace("vocals", "inst"))
+    elif "vocal" in key:
+        candidates.append(key.replace("vocal", "instrumental"))
+        candidates.append(key.replace("vocal", "inst"))
+
+    try:
+        with sqlite3.connect(str(FAVORITES_DB_PATH)) as conn:
+            cursor = conn.cursor()
+            for cand in candidates:
+                cursor.execute(
+                    "SELECT file_key, file_name, language, segments_json, lrc_content, srt_content, is_edited, updated_at FROM lyrics WHERE file_key = ?",
+                    (cand,)
+                )
+                row = cursor.fetchone()
+                if row:
+                    segments = json.loads(row[3])
+                    return {
+                        "status": "success",
+                        "cached": True,
+                        "file_key": row[0],
+                        "file_name": row[1],
+                        "language": row[2],
+                        "segments": segments,
+                        "lrc_content": row[4] or "",
+                        "srt_content": row[5] or "",
+                        "is_edited": bool(row[6]),
+                        "updated_at": row[7],
+                        "lrc_file": f"{Path(row[1]).stem}.lrc",
+                        "srt_file": f"{Path(row[1]).stem}.srt"
+                    }
+    except Exception as e:
+        print(f"Error querying SQLite lyrics for {file_name}: {e}")
+    return None
+
+def save_lyrics_db(file_name: str, language: str, segments: list, is_edited: bool = False) -> dict:
+    init_favorites_db()
+    key = _get_lyrics_key(file_name)
+    segments_json = json.dumps(segments, ensure_ascii=False)
+    
+    # Generate standard LRC and SRT strings
+    lrc_lines = ["[ti:" + file_name + "]", "[ar:UVR5 AI Studio]"]
+    srt_lines = []
+    
+    for i, s in enumerate(segments):
+        start_sec = float(s.get("start", 0))
+        end_sec = float(s.get("end", 0))
+        text = str(s.get("text", "")).strip()
+        
+        mins = int(start_sec // 60)
+        secs = start_sec % 60
+        lrc_lines.append(f"[{mins:02d}:{secs:05.2f}]{text}")
+        
+        st_h, st_m, st_s = int(start_sec // 3600), int((start_sec % 3600) // 60), start_sec % 60
+        en_h, en_m, en_s = int(end_sec // 3600), int((end_sec % 3600) // 60), end_sec % 60
+        st_str = f"{st_h:02d}:{st_m:02d}:{int(st_s):02d},{int((st_s - int(st_s)) * 1000):03d}"
+        en_str = f"{en_h:02d}:{en_m:02d}:{int(en_s):02d},{int((en_s - int(en_s)) * 1000):03d}"
+        srt_lines.append(f"{i+1}\n{st_str} --> {en_str}\n{text}\n")
+    
+    lrc_content = "\n".join(lrc_lines)
+    srt_content = "\n".join(srt_lines)
+    
+    # Save to disk as well (.lrc and .srt in outputs/)
+    try:
+        base_name = Path(file_name).stem
+        (OUTPUT_DIR / f"{base_name}.lrc").write_text(lrc_content, encoding="utf-8")
+        (OUTPUT_DIR / f"{base_name}.srt").write_text(srt_content, encoding="utf-8")
+    except Exception as e:
+        print(f"Error saving lrc/srt to disk: {e}")
+
+    try:
+        with sqlite3.connect(str(FAVORITES_DB_PATH)) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO lyrics (file_key, file_name, language, segments_json, lrc_content, srt_content, is_edited, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(file_key) DO UPDATE SET
+                    file_name = excluded.file_name,
+                    language = excluded.language,
+                    segments_json = excluded.segments_json,
+                    lrc_content = excluded.lrc_content,
+                    srt_content = excluded.srt_content,
+                    is_edited = excluded.is_edited,
+                    updated_at = CURRENT_TIMESTAMP;
+            """, (key, file_name, language or "tr", segments_json, lrc_content, srt_content, 1 if is_edited else 0))
+            conn.commit()
+    except Exception as e:
+        print(f"Error saving lyrics to SQLite: {e}")
+
+    return {
+        "status": "success",
+        "cached": True,
+        "file_key": key,
+        "file_name": file_name,
+        "language": language,
+        "segments": segments,
+        "lrc_content": lrc_content,
+        "srt_content": srt_content,
+        "is_edited": is_edited,
+        "lrc_file": f"{Path(file_name).stem}.lrc",
+        "srt_file": f"{Path(file_name).stem}.srt"
+    }
 
 def get_favorites_list():
     init_favorites_db()
@@ -1262,6 +1402,12 @@ async def analyze_audio_endpoint(req: AnalyzeAudioRequest):
 class LyricsRequest(BaseModel):
     file_name: str = Field(..., min_length=1, max_length=256)
     language: Optional[str] = "tr"
+    force: Optional[bool] = False
+
+class SaveLyricsRequest(BaseModel):
+    file_name: str = Field(..., min_length=1, max_length=256)
+    language: Optional[str] = "tr"
+    segments: List[LyricSegmentModel]
 
 WHISPER_DIR = Path("models/whisper").resolve()
 WHISPER_DIR.mkdir(parents=True, exist_ok=True)
@@ -1335,9 +1481,35 @@ async def download_whisper_endpoint(background_tasks: BackgroundTasks):
     background_tasks.add_task(_download_task, task_id)
     return {"status": "started", "task_id": task_id}
 
+@app.get("/lyrics/{file_name}")
+async def get_lyrics_endpoint(file_name: str):
+    cached = get_saved_lyrics(file_name)
+    if cached:
+        return cached
+    raise HTTPException(status_code=404, detail="No lyrics found in database for this file")
+
+@app.post("/save_lyrics")
+async def save_lyrics_endpoint(req: SaveLyricsRequest):
+    try:
+        saved = save_lyrics_db(
+            req.file_name,
+            req.language or "tr",
+            [s.dict() for s in req.segments],
+            is_edited=True
+        )
+        return saved
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/transcribe_lyrics")
 async def transcribe_lyrics_endpoint(req: LyricsRequest):
     try:
+        # 1. Check if we already have saved/cached lyrics in SQLite database
+        if not req.force:
+            cached_lyrics = get_saved_lyrics(req.file_name)
+            if cached_lyrics and cached_lyrics.get("segments") and len(cached_lyrics["segments"]) > 0:
+                return cached_lyrics
+
         audio_path = _find_audio_file(req.file_name)
         if not audio_path.exists():
             raise HTTPException(status_code=404, detail="Audio file not found")
@@ -1347,7 +1519,6 @@ async def transcribe_lyrics_endpoint(req: LyricsRequest):
         target_path = audio_path
         fn_lower = req.file_name.lower()
         if "instrumental" in fn_lower or "inst" in fn_lower or "other" in fn_lower:
-            # Try replacing instrumental with vocals
             candidates = [
                 re.sub(r'instrumental', 'Vocals', req.file_name, flags=re.IGNORECASE),
                 re.sub(r'instrumental', 'vocal', req.file_name, flags=re.IGNORECASE),
@@ -1411,38 +1582,9 @@ async def transcribe_lyrics_endpoint(req: LyricsRequest):
             except Exception as e2:
                 print(f"[WHISPER FALLBACK ERROR] {e2}")
 
-        lrc_lines = ["[ti:" + req.file_name + "]", "[ar:UVR5 AI Studio]"]
-        srt_lines = []
-        
-        for i, s in enumerate(segments):
-            mins = int(s["start"] // 60)
-            secs = s["start"] % 60
-            lrc_lines.append(f"[{mins:02d}:{secs:05.2f}]{s['text']}")
-            
-            # SRT format
-            st_h, st_m, st_s = int(s["start"] // 3600), int((s["start"] % 3600) // 60), s["start"] % 60
-            en_h, en_m, en_s = int(s["end"] // 3600), int((s["end"] % 3600) // 60), s["end"] % 60
-            st_str = f"{st_h:02d}:{st_m:02d}:{int(st_s):02d},{int((st_s - int(st_s)) * 1000):03d}"
-            en_str = f"{en_h:02d}:{en_m:02d}:{int(en_s):02d},{int((en_s - int(en_s)) * 1000):03d}"
-            
-            srt_lines.append(f"{i+1}\n{st_str} --> {en_str}\n{s['text']}\n")
-
-        lrc_content = "\n".join(lrc_lines)
-        srt_content = "\n".join(srt_lines)
-        
-        lrc_name = f"{Path(req.file_name).stem}.lrc"
-        srt_name = f"{Path(req.file_name).stem}.srt"
-        (OUTPUT_DIR / lrc_name).write_text(lrc_content, encoding="utf-8")
-        (OUTPUT_DIR / srt_name).write_text(srt_content, encoding="utf-8")
-        
-        return {
-            "status": "success",
-            "segments": segments,
-            "lrc_content": lrc_content,
-            "srt_content": srt_content,
-            "lrc_file": lrc_name,
-            "srt_file": srt_name
-        }
+        # Automatically save newly transcribed lyrics to SQLite database
+        saved_res = save_lyrics_db(req.file_name, req.language or "tr", segments, is_edited=False)
+        return saved_res
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

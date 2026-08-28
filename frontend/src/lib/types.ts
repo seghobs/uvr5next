@@ -105,6 +105,9 @@ export interface LyricSegment {
 
 export interface LyricsResponse {
   status: string;
+  cached?: boolean;
+  is_edited?: boolean;
+  updated_at?: string;
   segments: LyricSegment[];
   lrc_content: string;
   srt_content: string;

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Video,
@@ -21,6 +21,9 @@ import {
   Palette,
   Edit3,
   Volume2,
+  Database,
+  Save,
+  Check,
 } from 'lucide-react';
 import { Language, LyricSegment } from '@/lib/types';
 import { getTranslation } from '@/lib/translations';
@@ -56,6 +59,12 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
   const [rendering, setRendering] = useState(false);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
 
+  // SQLite Persistence State
+  const [isSavingDb, setIsSavingDb] = useState(false);
+  const [lastSavedTime, setLastSavedTime] = useState<string | null>(null);
+  const [isCachedFromDb, setIsCachedFromDb] = useState(false);
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   // Video Customization
   const [aspectRatio, setAspectRatio] = useState<'16:9' | '9:16'>('16:9');
   const [theme, setTheme] = useState<'gold' | 'neon' | 'cyberpunk' | 'emerald'>('gold');
@@ -70,21 +79,59 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       setVideoUrl(null);
-      // Auto-transcribe using vocal stem if available, or instrumental
+      // Auto-transcribe or load from SQLite database
       const sourceForLyrics = vocalStem || instStem;
       if (sourceForLyrics) {
-        fetchInitialLyrics(sourceForLyrics);
+        fetchInitialLyrics(sourceForLyrics, false);
       }
     }
   }, [isOpen, instStem, vocalStem]);
 
-  const fetchInitialLyrics = async (sourceFile: string) => {
+  const saveToDatabase = async (segmentsToSave: LyricSegment[], notifyUser = false) => {
+    const sourceFile = vocalStem || instStem;
+    if (!sourceFile || segmentsToSave.length === 0) return;
+    setIsSavingDb(true);
+    try {
+      await api.saveLyrics(sourceFile, segmentsToSave, 'tr');
+      const nowStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      setLastSavedTime(nowStr);
+      setIsCachedFromDb(true);
+      if (notifyUser) {
+        onNotify('success', 'Veritabanına Kaydedildi', `Şarkı sözleri SQLite veritabanına kalıcı olarak kaydedildi (${nowStr}).`);
+      }
+    } catch (err: any) {
+      console.error('SQLite Save Error:', err);
+      if (notifyUser) {
+        onNotify('error', 'Kayıt Hatası', 'Sözler veritabanına kaydedilemedi.');
+      }
+    } finally {
+      setIsSavingDb(false);
+    }
+  };
+
+  const triggerAutoSave = (newSegments: LyricSegment[]) => {
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = setTimeout(() => {
+      saveToDatabase(newSegments, false);
+    }, 1000);
+  };
+
+  const fetchInitialLyrics = async (sourceFile: string, force = false) => {
     setLoadingLyrics(true);
     try {
-      const res = await api.transcribeLyrics(sourceFile, 'tr');
+      const res = await api.transcribeLyrics(sourceFile, 'tr', force);
       if (res.segments && res.segments.length > 0) {
         setSegments(res.segments);
-        onNotify('success', 'Sözler Çıkarıldı!', `${res.segments.length} satır şarkı sözü Whisper AI ile başarıyla çıkarıldı.`);
+        if (res.cached) {
+          setIsCachedFromDb(true);
+          const savedAt = res.updated_at ? new Date(res.updated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Kayıtlı';
+          setLastSavedTime(savedAt);
+          onNotify('success', 'Veritabanından Yüklendi', `${res.segments.length} satır kayıtlı şarkı sözü SQLite veritabanından anında yüklendi.`);
+        } else {
+          setIsCachedFromDb(true);
+          setLastSavedTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+          onNotify('success', 'Sözler Çıkarıldı & Kaydedildi!', `${res.segments.length} satır şarkı sözü Whisper AI ile çıkarıldı ve SQLite veritabanına kaydedildi.`);
+        }
       } else {
         setSegments([]);
       }
@@ -99,6 +146,7 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
     setSegments((prev) => {
       const next = [...prev];
       next[index] = { ...next[index], [field]: val };
+      triggerAutoSave(next);
       return next;
     });
   };
@@ -117,12 +165,17 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
       } else {
         next.push(newSeg);
       }
+      triggerAutoSave(next);
       return next;
     });
   };
 
   const handleDeleteSegment = (index: number) => {
-    setSegments((prev) => prev.filter((_, i) => i !== index));
+    setSegments((prev) => {
+      const next = prev.filter((_, i) => i !== index);
+      triggerAutoSave(next);
+      return next;
+    });
   };
 
   const playLineAudio = (seg: LyricSegment, index: number) => {
@@ -251,10 +304,26 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
+            {isSavingDb ? (
+              <span className="px-2.5 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-bold flex items-center gap-1.5">
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
+                <span>SQLite'a Kaydediliyor...</span>
+              </span>
+            ) : (
+              <button
+                onClick={() => saveToDatabase(segments, true)}
+                title="Şarkı sözlerini SQLite veritabanına kalıcı olarak kaydet"
+                className="px-2.5 py-1.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95"
+              >
+                <Database className="w-3.5 h-3.5 text-emerald-400" />
+                <span>SQLite Kayıtlı {lastSavedTime ? `(${lastSavedTime})` : ''}</span>
+              </button>
+            )}
+
             <button
-              onClick={() => fetchInitialLyrics(vocalStem || instStem)}
+              onClick={() => fetchInitialLyrics(vocalStem || instStem, true)}
               disabled={loadingLyrics}
-              title="Whisper AI ile şarkı sözlerini baştan otomatik çıkar"
+              title="Whisper AI ile şarkı sözlerini sıfırdan baştan analiz et"
               className="px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 disabled:opacity-50"
             >
               {loadingLyrics ? (

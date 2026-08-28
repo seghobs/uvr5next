@@ -13,6 +13,8 @@ import {
   Copy,
   Check,
   Music2,
+  Database,
+  Sparkles,
 } from 'lucide-react';
 import { LyricSegment, Language } from '@/lib/types';
 import { getTranslation } from '@/lib/translations';
@@ -58,20 +60,27 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const activeLineRef = useRef<HTMLDivElement>(null);
 
+  const [isCached, setIsCached] = useState(false);
+  const [updatedAt, setUpdatedAt] = useState<string | null>(null);
+
   useEffect(() => {
     if (isOpen && fileName) {
-      loadLyrics();
+      loadLyrics(false);
     }
   }, [isOpen, fileName, selectedLanguage]);
 
-  const loadLyrics = async () => {
+  const loadLyrics = async (force = false) => {
     setLoading(true);
     try {
-      const res = await api.transcribeLyrics(fileName, selectedLanguage);
+      const res = await api.transcribeLyrics(fileName, selectedLanguage, force);
       if (res.segments) {
         setSegments(res.segments);
         setLrcContent(res.lrc_content || '');
         setSrtContent(res.srt_content || '');
+        setIsCached(!!res.cached);
+        if (res.updated_at) {
+          setUpdatedAt(new Date(res.updated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+        }
       }
     } catch (err: any) {
       onNotify('error', 'Söz Çıkarma Başarısız', err.message || 'Sözler analiz edilemedi');
@@ -182,9 +191,33 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
             >
               🇬🇧 English / Diğer
             </button>
+
+            {isCached && (
+              <span
+                title="Şarkı sözleri SQLite veritabanından anında yüklendi"
+                className="hidden sm:flex items-center gap-1 text-[10px] font-bold text-emerald-300 bg-emerald-500/10 px-2 py-0.5 rounded-lg border border-emerald-500/20"
+              >
+                <Database className="w-3 h-3 text-emerald-400" />
+                <span>SQLite {updatedAt ? `(${updatedAt})` : 'Kayıtlı'}</span>
+              </span>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => loadLyrics(true)}
+              disabled={loading}
+              title="Whisper AI ile şarkı sözlerini sıfırdan baştan çıkar"
+              className="px-2.5 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 disabled:opacity-40"
+            >
+              {loading ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="w-3.5 h-3.5" />
+              )}
+              <span className="hidden sm:inline">AI ile Yeniden Çıkar</span>
+            </button>
+
             <button
               onClick={() => downloadFile(lrcContent, 'lrc')}
               disabled={!lrcContent}

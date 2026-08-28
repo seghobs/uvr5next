@@ -236,22 +236,45 @@ export const api = {
     return res.json();
   },
 
-  async transcribeLyrics(fileName: string, language: string = 'tr'): Promise<{
-    status: string;
-    segments: Array<{ start: number; end: number; text: string }>;
-    lrc_content: string;
-    srt_content: string;
-    lrc_file: string;
-    srt_file: string;
-  }> {
+  async transcribeLyrics(
+    fileName: string,
+    language: string = 'tr',
+    force: boolean = false
+  ): Promise<LyricsResponse> {
     const res = await safeFetch('/transcribe_lyrics', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ file_name: fileName, language }),
+      body: JSON.stringify({ file_name: fileName, language, force }),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.detail || err.message || 'Lyrics transcription failed');
+    }
+    return res.json();
+  },
+
+  async saveLyrics(
+    fileName: string,
+    segments: LyricSegment[],
+    language: string = 'tr'
+  ): Promise<LyricsResponse> {
+    const res = await safeFetch('/save_lyrics', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file_name: fileName, language, segments }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || err.message || 'Failed to save lyrics to database');
+    }
+    return res.json();
+  },
+
+  async getSavedLyrics(fileName: string): Promise<LyricsResponse> {
+    const res = await safeFetch(`/lyrics/${encodeURIComponent(fileName)}`);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || err.message || 'No saved lyrics found');
     }
     return res.json();
   },
