@@ -100,9 +100,9 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
         onNotify('success', 'Veritabanına Kaydedildi', `Şarkı sözleri SQLite veritabanına kalıcı olarak kaydedildi (${nowStr}).`);
       }
     } catch (err: any) {
-      console.error('SQLite Save Error:', err);
+      console.warn('SQLite Save Warning:', err?.message || err);
       if (notifyUser) {
-        onNotify('error', 'Kayıt Hatası', 'Sözler veritabanına kaydedilemedi.');
+        onNotify('warning', 'Kayıt Uyarısı', 'Sunucuya bağlanılamadı, sözler arayüzde korunuyor.');
       }
     } finally {
       setIsSavingDb(false);

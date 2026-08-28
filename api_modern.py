@@ -1399,6 +1399,17 @@ async def analyze_audio_endpoint(req: AnalyzeAudioRequest):
     except Exception as e:
         return {"status": "success", "bpm": 124.0, "key": "A Minor", "root_note": "A", "scale": "Minor", "camelot": "8A", "duration": 180.0}
 
+class WordModel(BaseModel):
+    word: str
+    start: float
+    end: float
+
+class LyricSegmentModel(BaseModel):
+    start: float
+    end: float
+    text: str
+    words: Optional[List[WordModel]] = None
+
 class LyricsRequest(BaseModel):
     file_name: str = Field(..., min_length=1, max_length=256)
     language: Optional[str] = "tr"
@@ -1488,7 +1499,7 @@ async def get_lyrics_endpoint(file_name: str):
         return cached
     raise HTTPException(status_code=404, detail="No lyrics found in database for this file")
 
-@app.post("/save_lyrics")
+@app.api_route("/save_lyrics", methods=["POST", "PUT"])
 async def save_lyrics_endpoint(req: SaveLyricsRequest):
     try:
         saved = save_lyrics_db(
@@ -1678,17 +1689,6 @@ async def generate_visualizer_endpoint(req: VisualizerRequest):
         return {"status": "success", "video_file": out_video_name, "download_url": f"/output/{out_video_name}"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-class WordModel(BaseModel):
-    word: str
-    start: float
-    end: float
-
-class LyricSegmentModel(BaseModel):
-    start: float
-    end: float
-    text: str
-    words: Optional[List[WordModel]] = None
 
 class KaraokeVideoRequest(BaseModel):
     inst_file: str = Field(..., min_length=1, max_length=256)
