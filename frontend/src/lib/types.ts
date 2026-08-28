@@ -48,6 +48,11 @@ export interface LibraryItem {
   filename: string;
   stems: string[];
   timestamp: string;
+  model_name?: string;
+  ensemble_mode?: boolean;
+  key?: string;
+  bpm?: number;
+  duration?: number;
 }
 
 export interface SearchResult {

@@ -1,6 +1,9 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+import { Language, AccentColor, LibraryItem } from '@/lib/types';
+import { cn, formatTime } from '@/lib/utils';
+import { getTranslation } from '@/lib/translations';
 import {
   FolderHeart,
   Music,
@@ -17,23 +20,26 @@ import {
   Sparkles,
   Sliders,
   Check,
+  FolderOpen,
+  FileCode,
+  Upload,
 } from 'lucide-react';
-import { Language, AccentColor, LibraryItem } from '@/lib/types';
-import { cn, formatTime } from '@/lib/utils';
-import { getTranslation } from '@/lib/translations';
 
 interface LibraryViewProps {
   lang: Language;
   accentColor: AccentColor;
+  onLoadProject?: (item: LibraryItem) => void;
   onNotify: (type: 'success' | 'error' | 'warning' | 'info', title: string, message?: string) => void;
 }
 
 export const LibraryView: React.FC<LibraryViewProps> = ({
   lang,
   accentColor,
+  onLoadProject,
   onNotify,
 }) => {
   const t = (key: string) => getTranslation(lang, key);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [library, setLibrary] = useState<LibraryItem[]>(() => {
     if (typeof window !== 'undefined') {
@@ -46,6 +52,46 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     }
     return [];
   });
+
+  const exportProjectFile = (item: LibraryItem) => {
+    const jsonStr = JSON.stringify(item, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${item.filename.replace(/\.[^/.]+$/, '')}.uvrproj`;
+    a.click();
+    URL.revokeObjectURL(url);
+    onNotify('success', 'Proje Dışa Aktarıldı', '.uvrproj oturum dosyası kaydedildi.');
+  };
+
+  const handleImportProjectFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const project = JSON.parse(ev.target?.result as string) as LibraryItem;
+        if (!project.filename || !Array.isArray(project.stems)) {
+          throw new Error('Geçersiz proje formatı');
+        }
+        // Add to library if not exists
+        setLibrary((prev) => {
+          const updated = [project, ...prev.filter((p) => p.id !== project.id)];
+          localStorage.setItem('uvr_library', JSON.stringify(updated));
+          return updated;
+        });
+        onNotify('success', 'Proje İçe Aktarıldı', `"${project.filename}" kütüphaneye eklendi.`);
+        if (onLoadProject) {
+          onLoadProject(project);
+        }
+      } catch (err: any) {
+        onNotify('error', 'İçe Aktarma Başarısız', err.message || 'Geçersiz .uvrproj dosyası');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
 
   const [activeStem, setActiveStem] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -186,24 +232,48 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             <FolderHeart className="w-6 h-6" />
           </div>
           <div>
-            <h3 className="text-xl font-black font-outfit text-white tracking-tight">
-              {t('Library')}
-            </h3>
+            <div className="flex items-center gap-2">
+              <h3 className="text-xl font-black font-outfit text-white tracking-tight">
+                {t('Library')}
+              </h3>
+              <span className="text-[10px] font-mono font-bold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded-full border border-indigo-500/20">
+                PROJE OTURUMLARI
+              </span>
+            </div>
             <p className="text-xs text-slate-400">
-              {t('Your processing history and saved stems.')}
+              Kayıtlı çalışmalarınızı Photoshop PSD gibi yükleyip kaldığınız yerden devam edin.
             </p>
           </div>
         </div>
 
-        {library.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+          {/* Import Project (.uvrproj) Button */}
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleImportProjectFile}
+            accept=".uvrproj,.json"
+            className="hidden"
+          />
           <button
-            onClick={handleClearAll}
-            className="px-3.5 py-2 rounded-xl bg-white/[0.04] hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 border border-white/5 hover:border-rose-500/30 text-xs font-bold transition-all self-start sm:self-auto flex items-center gap-2"
+            onClick={() => fileInputRef.current?.click()}
+            className="px-3.5 py-2 rounded-xl bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95 shadow-md shadow-indigo-500/10"
+            title="Daha önce dışa aktarılmış bir .uvrproj oturum dosyasını yükleyin"
           >
-            <Trash2 className="w-3.5 h-3.5" />
-            <span>Tüm Geçmişi Temizle</span>
+            <Upload className="w-3.5 h-3.5" />
+            <span>📥 Proje Aç (.uvrproj)</span>
           </button>
-        )}
+
+          {library.length > 0 && (
+            <button
+              onClick={handleClearAll}
+              className="px-3.5 py-2 rounded-xl bg-white/[0.04] hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 border border-white/5 hover:border-rose-500/30 text-xs font-bold transition-all flex items-center gap-1.5"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Tümünü Temizle</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Advanced Active Audio Player Dock (Fixed in Library when Playing) */}
@@ -326,24 +396,52 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
               key={item.id}
               className="p-5 rounded-2xl glass-panel border border-white/10 space-y-4 hover:border-white/20 transition-all shadow-lg"
             >
-              {/* File Info Bar */}
-              <div className="flex items-center justify-between">
+              {/* File Info Bar & Session Actions */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-white/5">
                 <div className="flex items-center gap-3 truncate">
-                  <div className="w-2.5 h-2.5 rounded-full bg-indigo-400 animate-pulse shadow-[0_0_8px_rgba(99,102,241,0.6)]" />
+                  <div className="w-2.5 h-2.5 rounded-full bg-indigo-400 animate-pulse shadow-[0_0_8px_rgba(99,102,241,0.6)] shrink-0" />
                   <span className="font-black text-sm text-white truncate font-outfit">
                     {item.filename}
                   </span>
-                  <span className="text-[10px] font-mono text-slate-400 bg-white/[0.04] px-2 py-0.5 rounded-md border border-white/5">
+                  <span className="text-[10px] font-mono text-slate-400 bg-white/[0.04] px-2 py-0.5 rounded-md border border-white/5 shrink-0">
                     {item.timestamp}
                   </span>
+                  <span className="hidden md:inline-block text-[10px] font-mono text-indigo-300 bg-indigo-500/10 px-2 py-0.5 rounded-md border border-indigo-500/20 shrink-0">
+                    {item.stems.length} STEM
+                  </span>
                 </div>
-                <button
-                  onClick={() => handleDeleteItem(item.id)}
-                  className="p-2 rounded-xl hover:bg-rose-500/15 text-slate-500 hover:text-rose-400 transition-colors border border-transparent hover:border-rose-500/20"
-                  title="Geçmişten Sil"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+
+                <div className="flex items-center gap-2 self-end sm:self-auto">
+                  {/* Load Project Session Button (PSD Style) */}
+                  {onLoadProject && (
+                    <button
+                      onClick={() => onLoadProject(item)}
+                      className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-500 hover:from-indigo-500 hover:to-purple-500 text-white font-bold text-xs shadow-lg shadow-indigo-600/20 active:scale-95 transition-all flex items-center gap-1.5"
+                      title="Bu projeyi çalışma alanına geri yükle ve mikserde düzenle"
+                    >
+                      <FolderOpen className="w-3.5 h-3.5" />
+                      <span>Projeyi Yükle</span>
+                    </button>
+                  )}
+
+                  {/* Export Project File (.uvrproj) */}
+                  <button
+                    onClick={() => exportProjectFile(item)}
+                    className="p-1.5 rounded-xl bg-white/[0.04] hover:bg-white/10 text-slate-400 hover:text-indigo-300 border border-white/5 transition-colors"
+                    title="Projeyi .uvrproj oturum dosyası olarak kaydet"
+                  >
+                    <FileCode className="w-4 h-4" />
+                  </button>
+
+                  {/* Delete from History */}
+                  <button
+                    onClick={() => handleDeleteItem(item.id)}
+                    className="p-1.5 rounded-xl hover:bg-rose-500/15 text-slate-500 hover:text-rose-400 transition-colors border border-transparent hover:border-rose-500/20"
+                    title="Geçmişten Sil"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
 
               {/* Stems Cards with Mini Progress & Seek */}

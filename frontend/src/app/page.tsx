@@ -262,26 +262,52 @@ export default function StudioPage() {
     }
   };
 
-  return (
-    <div className="min-h-screen flex flex-col justify-between relative overflow-hidden bg-[#020611]">
-      {/* Dynamic Ambient Mesh Glows in Background */}
-      <div className="ambient-glow top-0 left-1/4 bg-indigo-600/20" />
-      <div className="ambient-glow bottom-10 right-10 bg-fuchsia-600/15" />
-      <div className="ambient-glow top-1/2 left-10 bg-emerald-600/10" />
+  // Load Project Session from Library (PSD Style)
+  const handleLoadProject = (project: LibraryItem) => {
+    // 1. Set Queue with loaded file
+    const loadedItem: UploadedItem = {
+      id: `${project.id || Date.now()}`,
+      name: project.filename,
+      path: project.filename,
+      size: 0,
+    };
+    setQueue([loadedItem]);
 
-      {/* Top Header */}
+    // 2. Restore separated stems
+    setSeparatedStems(project.stems || []);
+
+    // 3. Switch back to studio workspace tab
+    setCurrentTab('roformer');
+
+    // 4. Toast notification
+    addToast(
+      'success',
+      '📂 Proje Oturumu Yüklendi!',
+      `"${project.filename}" çalışmasına başarıyla geri dönüldü (${(project.stems || []).length} stem yüklendi).`
+    );
+
+    // 5. Scroll down to separated stems
+    setTimeout(() => {
+      document.getElementById('separated-stems-section')?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      });
+    }, 150);
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col selection:bg-indigo-500/30 font-sans">
       <Header
         lang={lang}
-        onToggleLang={handleToggleLang}
         accentColor={accentColor}
+        onToggleLang={handleToggleLang}
         onChangeAccent={handleChangeAccent}
         onOpenSettings={() => setShowSettings(true)}
         onOpenModelHub={() => setIsModelHubOpen(true)}
         device={device}
       />
 
-      {/* Main Container */}
-      <main className="max-w-[1550px] mx-auto w-full px-4 sm:px-6 lg:px-10 py-6 space-y-6 flex-1 relative z-10">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
         {/* Navigation Tabs */}
         <NavigationTabs
           currentTab={currentTab}
@@ -292,7 +318,12 @@ export default function StudioPage() {
 
         {/* Tab Content */}
         {currentTab === 'library' ? (
-          <LibraryView lang={lang} accentColor={accentColor} onNotify={addToast} />
+          <LibraryView
+            lang={lang}
+            accentColor={accentColor}
+            onLoadProject={handleLoadProject}
+            onNotify={addToast}
+          />
         ) : currentTab === 'leaderboard' ? (
           <LeaderboardView lang={lang} accentColor={accentColor} />
         ) : currentTab === 'batch' ? (
