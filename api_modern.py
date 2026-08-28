@@ -164,7 +164,7 @@ def _update_task(task_id: str, **kwargs):
             tasks[task_id]["updated_at"] = time.time()
 
 ALLOWED_EXTENSIONS = {e.lower() for e in core.extensions}
-ALLOWED_EXTENSIONS.add(".wav")
+ALLOWED_EXTENSIONS.update([".wav", ".mp4", ".lrc", ".srt", ".ass", ".json", ".uvrproj", ".m4a", ".opus", ".webm", ".mkv"])
 MAX_UPLOAD_SIZE = 500 * 1024 * 1024  # 500MB
 
 @app.get("/models")
@@ -911,13 +911,24 @@ async def get_output(filename: str):
         except Exception:
             raise HTTPException(status_code=404, detail="File not found")
 
-    media_type = "audio/mpeg" if file_path.suffix.lower() == ".mp3" else (
-        "audio/wav" if file_path.suffix.lower() == ".wav" else (
-            "audio/flac" if file_path.suffix.lower() == ".flac" else (
-                "audio/ogg" if file_path.suffix.lower() == ".ogg" else "application/octet-stream"
-            )
-        )
-    )
+    ext = file_path.suffix.lower()
+    if ext == ".mp4":
+        media_type = "video/mp4"
+    elif ext == ".mp3":
+        media_type = "audio/mpeg"
+    elif ext == ".wav":
+        media_type = "audio/wav"
+    elif ext == ".flac":
+        media_type = "audio/flac"
+    elif ext == ".ogg":
+        media_type = "audio/ogg"
+    elif ext in (".lrc", ".srt", ".ass"):
+        media_type = "text/plain; charset=utf-8"
+    elif ext in (".json", ".uvrproj"):
+        media_type = "application/json"
+    else:
+        media_type = "application/octet-stream"
+
     return FileResponse(
         path=str(file_path),
         media_type=media_type,

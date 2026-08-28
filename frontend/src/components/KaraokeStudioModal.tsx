@@ -540,8 +540,8 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
                   </div>
                   <a
                     href={videoUrl}
-                    download
-                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs flex items-center gap-2 shadow-lg shadow-amber-500/20 active:scale-95 transition-all"
+                    download={videoUrl.split('/').pop() || 'karaoke_video_1080p.mp4'}
+                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs flex items-center gap-2 shadow-lg shadow-amber-500/20 active:scale-95 transition-all cursor-pointer"
                   >
                     <Download className="w-4 h-4" />
                     <span>Videoyu İndir (MP4)</span>
