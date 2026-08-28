@@ -934,11 +934,19 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
               </div>
             ) : (
               segments.map((seg, idx) => {
-                const isRowActive = currentTime >= seg.start && currentTime <= seg.end;
+                const nextSeg = segments[idx + 1];
+                const isSinging = currentTime >= seg.start && currentTime <= seg.end;
+                const isLingering = currentTime > seg.end && (nextSeg ? currentTime < nextSeg.start : currentTime <= seg.end + 2.5);
+                const isRowActive = isSinging || isLingering;
                 const rowDuration = Math.max(0.1, seg.end - seg.start);
-                const rowProgressPercent = isRowActive ? ((currentTime - seg.start) / rowDuration) * 100 : 0;
+                const rowProgressPercent = isSinging
+                  ? Math.min(100, Math.max(0, ((currentTime - seg.start) / rowDuration) * 100))
+                  : isLingering
+                  ? 100
+                  : 0;
                 const isLoopingThis = loopLineIndex === idx;
                 const isLiveTarget = isLiveSyncMode && liveSyncIndex === idx;
+                const hasSustain = (seg.end - seg.start) >= 2.5;
 
                 return (
                   <div
@@ -958,8 +966,10 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
                         ? isSpacePressed
                           ? "bg-emerald-500/15 border-emerald-400 shadow-xl shadow-emerald-500/20 ring-2 ring-emerald-400/50"
                           : "bg-pink-500/10 border-pink-400 shadow-xl shadow-pink-500/20 ring-2 ring-pink-400/40"
-                        : isRowActive
+                        : isSinging
                         ? "bg-amber-500/10 border-amber-500/60 shadow-lg shadow-amber-500/10"
+                        : isLingering
+                        ? "bg-slate-900/90 border-amber-500/30"
                         : activePlayingIndex === idx
                         ? "bg-slate-950/90 border-amber-500/40"
                         : "bg-slate-950/70 border-white/10 hover:border-amber-500/30"
@@ -968,8 +978,13 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
                     {/* Live Row Progress Fill Bar */}
                     {isRowActive && rowProgressPercent > 0 && (
                       <div
-                        className="absolute bottom-0 left-0 top-0 bg-gradient-to-r from-amber-500/10 to-amber-500/20 border-r-2 border-amber-400 pointer-events-none transition-all duration-75"
-                        style={{ width: `${Math.min(100, Math.max(0, rowProgressPercent))}%` }}
+                        className={cn(
+                          "absolute bottom-0 left-0 top-0 pointer-events-none transition-all duration-75",
+                          isSinging
+                            ? "bg-gradient-to-r from-amber-500/10 to-amber-500/20 border-r-2 border-amber-400"
+                            : "bg-amber-500/10 opacity-70"
+                        )}
+                        style={{ width: `${rowProgressPercent}%` }}
                       />
                     )}
 
@@ -1091,8 +1106,8 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
                         </div>
                       </div>
 
-                      {/* Text Input */}
-                      <div className="flex-1" onClick={(e) => e.stopPropagation()}>
+                      {/* Text Input & Sustain Indicator */}
+                      <div className="flex-1 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                         <input
                           type="text"
                           value={seg.text}
@@ -1101,12 +1116,21 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
                             "w-full p-2.5 rounded-xl border text-xs font-semibold placeholder-slate-500 focus:outline-none focus:border-amber-500 transition-all",
                             isLiveTarget
                               ? "bg-slate-900 border-pink-400 text-pink-200 font-bold"
-                              : isRowActive
+                              : isSinging
                               ? "bg-slate-900/90 border-amber-500/50 text-amber-200"
                               : "bg-slate-900/90 border-white/10 text-white"
                           )}
                           placeholder="Şarkı sözü satırı..."
                         />
+                        {hasSustain && (
+                          <span
+                            className="text-[10px] font-mono text-amber-400 bg-amber-500/15 border border-amber-500/30 px-2 py-1 rounded-lg font-bold shrink-0 flex items-center gap-1 shadow-sm"
+                            title="Bu satırda uzun uzatma (sustain) var. Video renderında otomatik '......' eklenecektir."
+                          >
+                            <span>⏱️ {(seg.end - seg.start).toFixed(1)}s</span>
+                            <span className="text-amber-300 font-black">...</span>
+                          </span>
+                        )}
                       </div>
 
                       {/* Row Actions */}

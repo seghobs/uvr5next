@@ -1771,11 +1771,18 @@ async def generate_karaoke_video_endpoint(req: KaraokeVideoRequest):
             st = to_ass_time(seg.start)
             
             # Calculate smooth on-screen lingering time so uzatmalar / lines never abruptly vanish
+            # and respect es (musical pause / silence) between lines
             if idx + 1 < len(req.segments):
                 next_seg = req.segments[idx + 1]
-                display_end = min(seg.end + 1.8, max(seg.end, next_seg.start - 0.3))
+                gap = next_seg.start - seg.end
+                if gap <= 0.6:
+                    display_end = max(seg.end, next_seg.start - 0.15)
+                elif gap <= 2.5:
+                    display_end = max(seg.end, next_seg.start - 0.4)
+                else: # Long gap (es / musical break)
+                    display_end = seg.end + 2.0
             else:
-                display_end = seg.end + 2.5
+                display_end = seg.end + 3.0
             en = to_ass_time(display_end)
             
             # Show musical break indication if there is a long pause (> 3.5s)
@@ -1785,12 +1792,12 @@ async def generate_karaoke_video_endpoint(req: KaraokeVideoRequest):
                 ass_lines.append(f"Dialogue: 0,{intro_st},{intro_en},BreakNotice,,0,0,0,,♪ (Enstrümantal Giriş / Intro) ♪")
             elif idx > 0:
                 prev_end = req.segments[idx - 1].end
-                if seg.start - prev_end >= 4.0:
-                    solo_st = to_ass_time(prev_end + 0.6)
+                if seg.start - prev_end >= 3.5:
+                    solo_st = to_ass_time(prev_end + 1.0)
                     solo_en = to_ass_time(seg.start - 0.4)
-                    ass_lines.append(f"Dialogue: 0,{solo_st},{solo_en},BreakNotice,,0,0,0,,♪ (Müzikal Solo / Ara Nağme) ♪")
+                    ass_lines.append(f"Dialogue: 0,{solo_st},{solo_en},BreakNotice,,0,0,0,,♪ (Müzikal Ara / Es) ♪")
 
-            # Word-level pause-aware karaoke tag generator with sustain (uzatma) preservation
+            # Word-level pause-aware karaoke tag generator with sustain (uzatma) preservation and automatic dots "......"
             if seg.words and len(seg.words) > 0:
                 cur_t = seg.start
                 w_tags = []
@@ -1798,38 +1805,70 @@ async def generate_karaoke_video_endpoint(req: KaraokeVideoRequest):
                 for w_idx, w in enumerate(seg.words):
                     gap = round(w.start - cur_t, 2)
                     if gap >= 0.08:
-                        # Freeze the color during the pause/es (NO filling during silence!)
+                        # Freeze highlight during internal pauses/es (NO filling during silence!)
                         gap_cs = int(gap * 100)
                         w_tags.append(f"{{\\k{gap_cs}}}")
                     
-                    # If this is the last word in the segment and the vocal note is sustained (uzatma):
-                    if w_idx == num_words - 1 and seg.end > w.end:
+                    # If this is the last word in the segment and vocal note is sustained (uzatma):
+                    if w_idx == num_words - 1:
                         w_end = max(w.end, seg.end)
+                        held_dur = max(0.15, round(w_end - w.start, 2))
+                        clean_w = re.sub(r'[\.\,\!\?\~\s]+$', '', w.word)
+                        # If note is held for >= 1.0s, append dots "......" so reader intuitively sustains the note!
+                        if held_dur >= 1.0:
+                            num_dots = min(6, max(3, int(held_dur * 2.0)))
+                            w_disp = f"{clean_w}{'.' * num_dots}"
+                        else:
+                            w_disp = w.word
+                        dur_cs = int(held_dur * 100)
+                        w_tags.append(f"{{\\kf{dur_cs}}}{w_disp} ")
+                        cur_t = w_end
                     else:
                         w_end = w.end
-                    
-                    dur = max(0.12, round(w_end - w.start, 2))
-                    dur_cs = int(dur * 100)
-                    # Smooth progressive fill across the entire sustained note
-                    w_tags.append(f"{{\\kf{dur_cs}}}{w.word} ")
-                    cur_t = w_end
+                        dur = max(0.12, round(w_end - w.start, 2))
+                        dur_cs = int(dur * 100)
+                        w_tags.append(f"{{\\kf{dur_cs}}}{w.word} ")
+                        cur_t = w_end
                 active_karaoke_text = "".join(w_tags).strip()
             else:
-                dur_cs = max(10, int((seg.end - seg.start) * 100))
-                words = seg.text.strip().split()
-                if not words:
+                # Segment without word timestamps (manual edit / fallback)
+                seg_dur = max(0.5, round(seg.end - seg.start, 2))
+                raw_words = seg.text.strip().split()
+                if not raw_words:
                     continue
-                total_chars = sum(len(w) for w in words) or 1
+                
+                num_w = len(raw_words)
                 w_tags = []
-                for w in words:
-                    w_cs = max(10, int(dur_cs * (len(w) / total_chars)))
-                    w_tags.append(f"{{\\kf{w_cs}}}{w}")
-                active_karaoke_text = " ".join(w_tags)
+                if num_w == 1:
+                    clean_w = re.sub(r'[\.\,\!\?\~\s]+$', '', raw_words[0])
+                    num_dots = min(6, max(3, int(seg_dur * 2.0))) if seg_dur >= 1.2 else 0
+                    w_disp = f"{clean_w}{'.' * num_dots}" if num_dots > 0 else raw_words[0]
+                    w_tags.append(f"{{\\kf{int(seg_dur * 100)}}}{w_disp}")
+                else:
+                    # Allocate standard tempo to leading words, and give sustain to the final word
+                    avg_w_dur = min(0.42, (seg_dur * 0.55) / (num_w - 1))
+                    leading_total = avg_w_dur * (num_w - 1)
+                    last_w_dur = max(0.3, seg_dur - leading_total)
+                    
+                    for i, w in enumerate(raw_words[:-1]):
+                        w_cs = max(10, int(avg_w_dur * 100))
+                        w_tags.append(f"{{\\kf{w_cs}}}{w} ")
+                    
+                    last_w = raw_words[-1]
+                    clean_w = re.sub(r'[\.\,\!\?\~\s]+$', '', last_w)
+                    if last_w_dur >= 1.0:
+                        num_dots = min(6, max(3, int(last_w_dur * 2.0)))
+                        w_disp = f"{clean_w}{'.' * num_dots}"
+                    else:
+                        w_disp = last_w
+                    w_tags.append(f"{{\\kf{int(last_w_dur * 100)}}}{w_disp}")
+                
+                active_karaoke_text = "".join(w_tags).strip()
             
             # Active line with precise word timing & sustain
             ass_lines.append(f"Dialogue: 1,{st},{en},Active,,0,0,0,,{active_karaoke_text}")
             
-            # Upcoming Line Preview below active line
+            # Upcoming Line Preview below active line (displays in frosted silver, NEVER filled prematurely)
             if idx + 1 < len(req.segments):
                 next_text = req.segments[idx + 1].text.strip()
                 if next_text:
