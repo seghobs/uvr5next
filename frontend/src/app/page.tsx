@@ -397,6 +397,7 @@ export default function StudioPage() {
                       <StemAudioPlayer
                         key={stem}
                         stem={stem}
+                        allStems={separatedStems}
                         lang={lang}
                         accentColor={accentColor}
                         onNewStemCreated={(newStem) =>

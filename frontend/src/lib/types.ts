@@ -116,3 +116,9 @@ export interface VisualizerResponse {
   video_file: string;
   download_url: string;
 }
+
+export interface KaraokeVideoResponse {
+  status: string;
+  video_file: string;
+  download_url: string;
+}

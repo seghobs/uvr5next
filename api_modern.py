@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field, field_validator
-from typing import Optional
+from typing import Optional, List, Dict
 import core
 
 import sqlite3
@@ -1442,7 +1442,145 @@ async def generate_visualizer_endpoint(req: VisualizerRequest):
         ]
         
         subprocess.run(cmd, check=True, capture_output=True)
-        return {"status": "success", "video_file": out_video_name, "download_url": f"/outputs/{out_video_name}"}
+        return {"status": "success", "video_file": out_video_name, "download_url": f"/output/{out_video_name}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+class LyricSegmentModel(BaseModel):
+    start: float
+    end: float
+    text: str
+
+class KaraokeVideoRequest(BaseModel):
+    inst_file: str = Field(..., min_length=1, max_length=256)
+    segments: List[LyricSegmentModel]
+    title: Optional[str] = "Karaoke Track"
+    artist: Optional[str] = "UVR5 AI Studio"
+    aspect_ratio: str = Field(default="16:9", pattern="^(16:9|9:16)$")
+    theme: str = Field(default="gold", pattern="^(gold|neon|cyberpunk|emerald)$")
+
+@app.post("/generate_karaoke_video")
+async def generate_karaoke_video_endpoint(req: KaraokeVideoRequest):
+    try:
+        inst_path = _find_audio_file(req.inst_file)
+        
+        is_vertical = req.aspect_ratio == "9:16"
+        res_x, res_y = (1080, 1920) if is_vertical else (1920, 1080)
+        
+        # Color palette per theme
+        if req.theme == "gold":
+            primary_color = "&H0000D7FF"     # Glowing Gold BGR
+            upcoming_color = "&H80A0A0A0"
+            wave_color = "#f59e0b|#fbbf24|#d97706"
+            bg_color = "0x090D18"
+        elif req.theme == "cyberpunk":
+            primary_color = "&H00D946EF"     # Glowing Neon Magenta
+            upcoming_color = "&H80A0A0A0"
+            wave_color = "#ec4899|#8b5cf6|#06b6d4"
+            bg_color = "0x050512"
+        elif req.theme == "emerald":
+            primary_color = "&H0034D399"     # Emerald Green
+            upcoming_color = "&H80A0A0A0"
+            wave_color = "#10b981|#34d399|#059669"
+            bg_color = "0x06110D"
+        else: # neon
+            primary_color = "&H00FFFF00"     # Cyan Blue
+            upcoming_color = "&H80A0A0A0"
+            wave_color = "#6366f1|#38bdf8|#818cf8"
+            bg_color = "0x070B18"
+
+        def to_ass_time(sec: float) -> str:
+            sec = max(0.0, sec)
+            hrs = int(sec // 3600)
+            mins = int((sec % 3600) // 60)
+            secs = int(sec % 60)
+            cs = int((sec - int(sec)) * 100)
+            return f"{hrs}:{mins:02d}:{secs:02d}.{cs:02d}"
+
+        font_size_active = 66 if is_vertical else 56
+        font_size_upcoming = 42 if is_vertical else 36
+        margin_v_active = 360 if is_vertical else 140
+        margin_v_upcoming = 260 if is_vertical else 80
+
+        ass_lines = [
+            "[Script Info]",
+            "ScriptType: v4.00+",
+            f"PlayResX: {res_x}",
+            f"PlayResY: {res_y}",
+            "ScaledBorderAndShadow: yes",
+            "",
+            "[V4+ Styles]",
+            "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
+            f"Style: Title, Arial, 32, &H00FFFFFF, &H00000000, &H00000000, &H80000000, -1, 0, 0, 0, 100, 100, 0, 0, 1, 2, 2, 8, 40, 40, 50, 1",
+            f"Style: Active, Arial, {font_size_active}, {primary_color}, &H00FFFFFF, &H00000000, &H80000000, -1, 0, 0, 0, 100, 100, 0, 0, 1, 4, 3, 2, 60, 60, {margin_v_active}, 1",
+            f"Style: Upcoming, Arial, {font_size_upcoming}, {upcoming_color}, &H00000000, &H00000000, &H80000000, 0, 0, 0, 0, 100, 100, 0, 0, 1, 2, 1, 2, 60, 60, {margin_v_upcoming}, 1",
+            "",
+            "[Events]",
+            "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
+        ]
+
+        title_text = f"🎤 {req.title or 'Karaoke'} - {req.artist or 'UVR5'}"
+        ass_lines.append(f"Dialogue: 0,0:00:00.00,1:00:00.00,Title,,0,0,0,,{title_text}")
+
+        for idx, seg in enumerate(req.segments):
+            st = to_ass_time(seg.start)
+            en = to_ass_time(seg.end)
+            cur_text = seg.text.strip()
+            if not cur_text:
+                continue
+            # Active highlighted Line
+            ass_lines.append(f"Dialogue: 1,{st},{en},Active,,0,0,0,,{cur_text}")
+            # Upcoming Line Preview
+            if idx + 1 < len(req.segments):
+                next_seg = req.segments[idx + 1]
+                next_text = next_seg.text.strip()
+                if next_text:
+                    ass_lines.append(f"Dialogue: 0,{st},{en},Upcoming,,0,0,0,,{next_text}")
+
+        timestamp_id = int(time.time())
+        ass_filename = f"karaoke_sub_{timestamp_id}.ass"
+        ass_path = OUTPUT_DIR / ass_filename
+        ass_path.write_text("\n".join(ass_lines), encoding="utf-8")
+
+        out_video_name = f"Karaoke_{Path(req.inst_file).stem}_{req.theme}_{timestamp_id}.mp4"
+        out_video_path = OUTPUT_DIR / out_video_name
+
+        wave_w = 900 if is_vertical else 1500
+        wave_h = 280 if is_vertical else 220
+        wave_y = 600 if is_vertical else 180
+
+        filter_complex = (
+            f"[0:a]showwaves=s={wave_w}x{wave_h}:mode=line:colors={wave_color}:scale=cbrt[waves];"
+            f"color=c={bg_color}:s={res_x}x{res_y}:d=3600[bg];"
+            f"[bg][waves]overlay=(W-w)/2:{wave_y}:shortest=1[v_raw];"
+            f"[v_raw]subtitles=filename={ass_filename}[v]"
+        )
+
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", str(inst_path),
+            "-filter_complex", filter_complex,
+            "-map", "[v]",
+            "-map", "0:a",
+            "-c:v", "libx264",
+            "-preset", "veryfast",
+            "-crf", "20",
+            "-pix_fmt", "yuv420p",
+            "-c:a", "aac",
+            "-b:a", "320k",
+            "-shortest",
+            str(out_video_path)
+        ]
+
+        proc = subprocess.run(cmd, cwd=str(OUTPUT_DIR), capture_output=True, text=True)
+        if proc.returncode != 0:
+            raise RuntimeError(f"FFmpeg render failed: {proc.stderr[-400:]}")
+
+        return {
+            "status": "success",
+            "video_file": out_video_name,
+            "download_url": f"/output/{out_video_name}"
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

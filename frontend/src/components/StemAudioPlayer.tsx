@@ -20,9 +20,11 @@ import { getTranslation } from '@/lib/translations';
 import { api } from '@/lib/api';
 import { LyricsModal } from './LyricsModal';
 import { VisualizerExportModal } from './VisualizerExportModal';
+import { KaraokeStudioModal } from './KaraokeStudioModal';
 
 interface StemAudioPlayerProps {
   stem: string;
+  allStems?: string[];
   lang: Language;
   accentColor: AccentColor;
   onNewStemCreated?: (filename: string) => void;
@@ -31,6 +33,7 @@ interface StemAudioPlayerProps {
 
 export const StemAudioPlayer: React.FC<StemAudioPlayerProps> = ({
   stem,
+  allStems,
   lang,
   accentColor,
   onNewStemCreated,
@@ -45,6 +48,7 @@ export const StemAudioPlayer: React.FC<StemAudioPlayerProps> = ({
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(1);
   const [isMuted, setIsMuted] = useState(false);
+  const [showKaraokeModal, setShowKaraokeModal] = useState(false);
 
   // Pitch & Tempo State
   const [showPitchTempo, setShowPitchTempo] = useState(false);
@@ -376,10 +380,20 @@ export const StemAudioPlayer: React.FC<StemAudioPlayerProps> = ({
             </button>
           )}
 
+          {/* 1080p YouTube Karaoke Video Generator */}
+          <button
+            onClick={() => setShowKaraokeModal(true)}
+            className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500/20 to-orange-500/20 hover:from-amber-500/30 hover:to-orange-500/30 text-amber-300 border border-amber-500/40 text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95 shadow-md shadow-amber-500/10"
+            title="Şarkı sözlerini düzenleyip 1080p YouTube Karaoke Videosu (MP4) Oluştur"
+          >
+            <span>🎤</span>
+            <span className="hidden sm:inline">Karaoke Video</span>
+          </button>
+
           {/* 1080p Video Visualizer Export */}
           <button
             onClick={() => setShowVisualizerModal(true)}
-            className="px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95"
+            className="px-3 py-1.5 rounded-xl bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95"
             title="1080p Dalga Formlu Video (TikTok/Reels/YouTube) Oluştur"
           >
             <span>🎬</span>
@@ -653,6 +667,22 @@ export const StemAudioPlayer: React.FC<StemAudioPlayerProps> = ({
         isOpen={showVisualizerModal}
         onClose={() => setShowVisualizerModal(false)}
         fileName={stem}
+        lang={lang}
+        onNotify={onNotify}
+      />
+
+      {/* 1080p YouTube Karaoke Studio & Video Generator Modal */}
+      <KaraokeStudioModal
+        isOpen={showKaraokeModal}
+        onClose={() => setShowKaraokeModal(false)}
+        instStem={stem}
+        vocalStem={
+          allStems?.find(
+            (s) =>
+              s.toLowerCase().includes('vocal') ||
+              s.toLowerCase().includes('vok')
+          ) || (isVocal ? stem : undefined)
+        }
         lang={lang}
         onNotify={onNotify}
       />

@@ -79,6 +79,10 @@ const nextConfig = {
         source: '/generate_visualizer',
         destination: 'http://127.0.0.1:8000/generate_visualizer',
       },
+      {
+        source: '/generate_karaoke_video',
+        destination: 'http://127.0.0.1:8000/generate_karaoke_video',
+      },
     ];
   },
 };

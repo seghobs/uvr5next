@@ -265,4 +265,24 @@ export const api = {
     }
     return res.json();
   },
+
+  async generateKaraokeVideo(payload: {
+    inst_file: string;
+    segments: Array<{ start: number; end: number; text: string }>;
+    title?: string;
+    artist?: string;
+    aspect_ratio?: '16:9' | '9:16';
+    theme?: 'gold' | 'neon' | 'cyberpunk' | 'emerald';
+  }): Promise<{ status: string; video_file: string; download_url: string }> {
+    const res = await fetch('/generate_karaoke_video', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || err.message || 'Karaoke video generation failed');
+    }
+    return res.json();
+  },
 };
