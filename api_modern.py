@@ -1756,7 +1756,7 @@ async def generate_karaoke_video_endpoint(req: KaraokeVideoRequest):
             "[V4+ Styles]",
             "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
             f"Style: Title, Arial, 32, &H00FFFFFF, &H00000000, &H00000000, &H80000000, -1, 0, 0, 0, 100, 100, 2, 0, 1, 3, 2, 8, 60, 60, 50, 1",
-            f"Style: BreakNotice, Arial, 38, {break_color}, &H00000000, &H00000000, &H80000000, 0, -1, 0, 0, 100, 100, 2, 0, 1, 3, 2, 2, 80, 80, {margin_v_active}, 1",
+            f"Style: BreakNotice, Arial, 46, {break_color}, &H00000000, &H00000000, &H90000000, -1, 1, 0, 0, 100, 100, 2, 0, 1, 4, 3, 2, 80, 80, {margin_v_active}, 1",
             f"Style: Active, Arial, {font_size_active}, {primary_color}, &H00FFFFFF, &H00000000, &H90000000, -1, 0, 0, 0, 100, 100, 1, 0, 1, 5, 4, 2, 80, 80, {margin_v_active}, 1",
             f"Style: Upcoming, Arial, {font_size_upcoming}, {upcoming_color}, &H00000000, &H00000000, &H80000000, 0, 0, 0, 0, 100, 100, 1, 0, 1, 3, 2, 2, 80, 80, {margin_v_upcoming}, 1",
             "",
@@ -1785,17 +1785,17 @@ async def generate_karaoke_video_endpoint(req: KaraokeVideoRequest):
                 display_end = seg.end + 3.0
             en = to_ass_time(display_end)
             
-            # Show musical break indication if there is a long pause (> 3.5s)
-            if idx == 0 and seg.start >= 4.0:
+            # Show musical break indication if there is a long pause (> 3.0s)
+            if idx == 0 and seg.start >= 3.5:
                 intro_st = to_ass_time(1.0)
                 intro_en = to_ass_time(seg.start - 0.4)
-                ass_lines.append(f"Dialogue: 0,{intro_st},{intro_en},BreakNotice,,0,0,0,,♪ (Enstrümantal Giriş / Intro) ♪")
+                ass_lines.append(f"Dialogue: 0,{intro_st},{intro_en},BreakNotice,,0,0,0,,♪ (Giriş / Enstrümantal Intro......) ♪")
             elif idx > 0:
                 prev_end = req.segments[idx - 1].end
-                if seg.start - prev_end >= 3.5:
+                if seg.start - prev_end >= 3.0:
                     solo_st = to_ass_time(prev_end + 1.0)
                     solo_en = to_ass_time(seg.start - 0.4)
-                    ass_lines.append(f"Dialogue: 0,{solo_st},{solo_en},BreakNotice,,0,0,0,,♪ (Müzikal Ara / Es) ♪")
+                    ass_lines.append(f"Dialogue: 0,{solo_st},{solo_en},BreakNotice,,0,0,0,,♪ (Solo...... Ara Nağme) ♪")
 
             # Word-level pause-aware karaoke tag generator with sustain (uzatma) preservation and automatic dots "......"
             if seg.words and len(seg.words) > 0:
