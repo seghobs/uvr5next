@@ -1,20 +1,45 @@
 import { AvailableModels, ModelStatus, SeparationParams, TaskStatus, SearchResult, EnsembleSlot } from './types';
 
+async function safeFetch(path: string, options?: RequestInit): Promise<Response> {
+  const isBrowser = typeof window !== 'undefined';
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+
+  try {
+    const res = await fetch(cleanPath, options);
+    if (res.ok) return res;
+
+    // If proxy failed, retry directly against FastAPI backend port 8000
+    if (isBrowser && (res.status === 404 || res.status === 405 || res.status >= 500)) {
+      const directUrl = `http://127.0.0.1:8000${cleanPath}`;
+      const directRes = await fetch(directUrl, options).catch(() => null);
+      if (directRes && directRes.ok) return directRes;
+    }
+    return res;
+  } catch (err) {
+    if (isBrowser) {
+      const directUrl = `http://127.0.0.1:8000${cleanPath}`;
+      const directRes = await fetch(directUrl, options).catch(() => null);
+      if (directRes && directRes.ok) return directRes;
+    }
+    throw err;
+  }
+}
+
 export const api = {
   async getModels(): Promise<AvailableModels> {
-    const res = await fetch('/models');
+    const res = await safeFetch('/models');
     if (!res.ok) throw new Error('Failed to fetch models');
     return res.json();
   },
 
   async getModelStatus(modelKey: string): Promise<ModelStatus> {
-    const res = await fetch(`/model_status/${encodeURIComponent(modelKey)}`);
+    const res = await safeFetch(`/model_status/${encodeURIComponent(modelKey)}`);
     if (!res.ok) throw new Error('Failed to fetch model status');
     return res.json();
   },
 
   async downloadModel(modelKey: string): Promise<{ task_id: string }> {
-    const res = await fetch('/download_model', {
+    const res = await safeFetch('/download_model', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model_key: modelKey }),
@@ -28,7 +53,7 @@ export const api = {
 
   async getFavorites(): Promise<string[]> {
     try {
-      const res = await fetch('/api/favorites');
+      const res = await safeFetch('/api/favorites');
       if (!res.ok) return [];
       const data = await res.json();
       return Array.isArray(data.favorites) ? data.favorites : [];
@@ -38,7 +63,7 @@ export const api = {
   },
 
   async toggleFavorite(modelName: string): Promise<{ status: string; favorites: string[] }> {
-    const res = await fetch('/api/favorites/toggle', {
+    const res = await safeFetch('/api/favorites/toggle', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model_name: modelName }),
@@ -50,7 +75,7 @@ export const api = {
   async uploadAudio(file: File): Promise<{ filename: string; path: string }> {
     const formData = new FormData();
     formData.append('file', file);
-    const res = await fetch('/upload', {
+    const res = await safeFetch('/upload', {
       method: 'POST',
       body: formData,
     });
@@ -66,7 +91,7 @@ export const api = {
   },
 
   async downloadFromUrl(url: string): Promise<{ filename: string; path: string; title: string }> {
-    const res = await fetch('/download', {
+    const res = await safeFetch('/download', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url }),
@@ -84,7 +109,7 @@ export const api = {
   },
 
   async search(query: string, maxResults: number = 20): Promise<SearchResult[]> {
-    const res = await fetch(`/search?q=${encodeURIComponent(query)}&max_results=${maxResults}`);
+    const res = await safeFetch(`/search?q=${encodeURIComponent(query)}&max_results=${maxResults}`);
     if (!res.ok) throw new Error('Search failed');
     const data = await res.json();
     return Array.isArray(data) ? data : (data.results || []);
@@ -97,7 +122,7 @@ export const api = {
     out_format: string;
     params: SeparationParams;
   }): Promise<{ task_id: string }> {
-    const res = await fetch('/separate', {
+    const res = await safeFetch('/separate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -115,7 +140,7 @@ export const api = {
     out_format: string;
     params: SeparationParams;
   }): Promise<{ task_id: string }> {
-    const res = await fetch('/ensemble', {
+    const res = await safeFetch('/ensemble', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -128,7 +153,7 @@ export const api = {
   },
 
   async getTaskStatus(taskId: string): Promise<TaskStatus> {
-    const res = await fetch(`/status/${encodeURIComponent(taskId)}`);
+    const res = await safeFetch(`/status/${encodeURIComponent(taskId)}`);
     if (!res.ok) throw new Error('Task status fetch failed');
     return res.json();
   },
@@ -138,7 +163,7 @@ export const api = {
     pitch_semitones: number;
     tempo_factor: number;
   }): Promise<{ status: string; filename: string; message?: string }> {
-    const res = await fetch('/modify_audio', {
+    const res = await safeFetch('/modify_audio', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -156,7 +181,7 @@ export const api = {
     tempo_factor: number;
     out_format: string;
   }): Promise<{ filename: string; message: string }> {
-    const res = await fetch('/remix', {
+    const res = await safeFetch('/remix', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -166,7 +191,7 @@ export const api = {
   },
 
   async getLeaderboard(filter: string): Promise<{ html: string }> {
-    const res = await fetch(`/leaderboard?filter=${encodeURIComponent(filter)}`);
+    const res = await safeFetch(`/leaderboard?filter=${encodeURIComponent(filter)}`);
     if (!res.ok) throw new Error('Leaderboard fetch failed');
     return res.json();
   },
@@ -179,7 +204,7 @@ export const api = {
     out_format: string;
     params?: SeparationParams;
   }): Promise<{ task_id: string }> {
-    const res = await fetch('/batch', {
+    const res = await safeFetch('/batch', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -199,7 +224,7 @@ export const api = {
     camelot: string;
     duration?: number;
   }> {
-    const res = await fetch('/analyze_audio', {
+    const res = await safeFetch('/analyze_audio', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ file_name: fileName }),
@@ -219,7 +244,7 @@ export const api = {
     lrc_file: string;
     srt_file: string;
   }> {
-    const res = await fetch('/transcribe_lyrics', {
+    const res = await safeFetch('/transcribe_lyrics', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ file_name: fileName, language }),
@@ -236,7 +261,7 @@ export const api = {
     clean_type: 'dereverb' | 'debleed';
     out_format?: string;
   }): Promise<{ task_id: string }> {
-    const res = await fetch('/quick_clean', {
+    const res = await safeFetch('/quick_clean', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -254,7 +279,7 @@ export const api = {
     theme?: 'neon' | 'gold' | 'cyberpunk';
     title?: string;
   }): Promise<{ status: string; video_file: string; download_url: string }> {
-    const res = await fetch('/generate_visualizer', {
+    const res = await safeFetch('/generate_visualizer', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -274,7 +299,7 @@ export const api = {
     aspect_ratio?: '16:9' | '9:16';
     theme?: 'gold' | 'neon' | 'cyberpunk' | 'emerald';
   }): Promise<{ status: string; video_file: string; download_url: string }> {
-    const res = await fetch('/generate_karaoke_video', {
+    const res = await safeFetch('/generate_karaoke_video', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -293,7 +318,7 @@ export const api = {
     size_mb: number;
     path: string;
   }> {
-    const res = await fetch('/whisper_status');
+    const res = await safeFetch('/whisper_status');
     if (!res.ok) {
       return {
         model_name: 'Whisper Large-V3-Turbo',
@@ -307,7 +332,7 @@ export const api = {
   },
 
   async downloadWhisperModel(): Promise<{ status: string; task_id: string }> {
-    const res = await fetch('/download_whisper', {
+    const res = await safeFetch('/download_whisper', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
     });
