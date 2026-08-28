@@ -1274,7 +1274,7 @@ def get_whisper_model():
     _whisper_cache["model"] = model
     return model
 
-@app.get("/whisper_status")
+@app.api_route("/whisper_status", methods=["GET", "POST"])
 async def whisper_status_endpoint():
     turbo_dir = WHISPER_DIR / "large-v3-turbo"
     installed = False
@@ -1292,21 +1292,35 @@ async def whisper_status_endpoint():
         "path": str(turbo_dir)
     }
 
-@app.post("/download_whisper")
+@app.api_route("/download_whisper", methods=["GET", "POST"])
 async def download_whisper_endpoint(background_tasks: BackgroundTasks):
-    task_id = str(uuid.uuid4())
+    task_id = _create_task({
+        "message": "Whisper Large-V3-Turbo indiriliyor (~1.5 GB)...",
+        "model_type": "download",
+        "progress": 15
+    })
     
     def _download_task(t_id):
         try:
-            tasks[t_id] = {"status": "processing", "progress": 20, "message": "Whisper Large-V3-Turbo indiriliyor (~1.5 GB)..."}
             from faster_whisper import download_model
             turbo_dir = WHISPER_DIR / "large-v3-turbo"
             download_model("large-v3-turbo", output_dir=str(turbo_dir))
-            tasks[t_id] = {"status": "completed", "progress": 100, "message": "Whisper Large-V3-Turbo başarıyla kuruldu!"}
+            tasks[t_id]["status"] = "completed"
+            tasks[t_id]["progress"] = 100
+            tasks[t_id]["message"] = "Whisper Large-V3-Turbo başarıyla kuruldu!"
         except Exception as e:
-            tasks[t_id] = {"status": "failed", "progress": 0, "message": f"İndirme hatası: {e}", "error": str(e)}
+            try:
+                import whisper
+                whisper.load_model("large-v3-turbo", download_root=str(WHISPER_DIR))
+                tasks[t_id]["status"] = "completed"
+                tasks[t_id]["progress"] = 100
+                tasks[t_id]["message"] = "Whisper Large-V3-Turbo başarıyla kuruldu!"
+            except Exception as e2:
+                tasks[t_id]["status"] = "failed"
+                tasks[t_id]["progress"] = 0
+                tasks[t_id]["message"] = f"İndirme hatası: {e2}"
+                tasks[t_id]["error"] = str(e2)
 
-    tasks[task_id] = {"status": "processing", "progress": 5, "message": "İndirme başlatılıyor..."}
     background_tasks.add_task(_download_task, task_id)
     return {"status": "started", "task_id": task_id}
 

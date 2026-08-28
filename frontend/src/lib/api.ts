@@ -307,7 +307,10 @@ export const api = {
   },
 
   async downloadWhisperModel(): Promise<{ status: string; task_id: string }> {
-    const res = await fetch('/download_whisper', { method: 'POST' });
+    const res = await fetch('/download_whisper', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.detail || err.message || 'Whisper download failed');
