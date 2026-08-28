@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Video,
@@ -15,20 +15,19 @@ import {
   Pause,
   Plus,
   Trash2,
-  FileText,
   Mic2,
   Music,
   Palette,
   Edit3,
-  Volume2,
   Database,
-  Save,
-  Check,
+  RotateCcw,
+  FastForward,
+  Repeat,
 } from 'lucide-react';
 import { Language, LyricSegment } from '@/lib/types';
 import { getTranslation } from '@/lib/translations';
 import { api } from '@/lib/api';
-import { cn, formatTime } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 
 interface KaraokeStudioModalProps {
   isOpen: boolean;
@@ -62,7 +61,6 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
   // SQLite Persistence State
   const [isSavingDb, setIsSavingDb] = useState(false);
   const [lastSavedTime, setLastSavedTime] = useState<string | null>(null);
-  const [isCachedFromDb, setIsCachedFromDb] = useState(false);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Video Customization
@@ -72,14 +70,91 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
   const [artist, setArtist] = useState('Karaoke Track');
   const [activeTab, setActiveTab] = useState<'lyrics' | 'video'>('lyrics');
 
-  // Mini Audio Player for Line Audition
-  const [playingIndex, setPlayingIndex] = useState<number | null>(null);
+  // Precision Audio Player State
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const progressBarRef = useRef<HTMLDivElement | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [activeAudioSource, setActiveAudioSource] = useState<'vocal' | 'inst'>(vocalStem ? 'vocal' : 'inst');
+  const [loopLineIndex, setLoopLineIndex] = useState<number | null>(null);
+  const [activePlayingIndex, setActivePlayingIndex] = useState<number | null>(null);
+  const [hoverTime, setHoverTime] = useState<number | null>(null);
 
+  // Stop audio on close
+  useEffect(() => {
+    if (!isOpen && audioRef.current) {
+      audioRef.current.pause();
+      setIsPlaying(false);
+      setActivePlayingIndex(null);
+    }
+  }, [isOpen]);
+
+  // Audio Engine Lifecycle
+  useEffect(() => {
+    if (!isOpen) return;
+    const audioFile = activeAudioSource === 'vocal' && vocalStem ? vocalStem : instStem;
+    if (!audioFile) return;
+
+    if (!audioRef.current) {
+      audioRef.current = new Audio();
+    }
+    const audio = audioRef.current;
+    const wasPlaying = isPlaying;
+    const savedPos = audio.currentTime || 0;
+
+    audio.src = `/output/${encodeURIComponent(audioFile)}`;
+    audio.load();
+
+    const handleLoadedMetadata = () => {
+      setDuration(audio.duration || 0);
+      if (savedPos > 0 && savedPos < audio.duration) {
+        audio.currentTime = savedPos;
+      }
+      if (wasPlaying) {
+        audio.play().catch(() => {});
+      }
+    };
+
+    const handleTimeUpdate = () => {
+      setCurrentTime(audio.currentTime);
+
+      // Handle Line Loop Mode
+      if (loopLineIndex !== null && segments[loopLineIndex]) {
+        const targetSeg = segments[loopLineIndex];
+        if (audio.currentTime >= targetSeg.end) {
+          audio.currentTime = targetSeg.start;
+        }
+      }
+    };
+
+    const handleEnded = () => {
+      setIsPlaying(false);
+      setActivePlayingIndex(null);
+    };
+
+    const handlePlayEvent = () => setIsPlaying(true);
+    const handlePauseEvent = () => setIsPlaying(false);
+
+    audio.addEventListener('loadedmetadata', handleLoadedMetadata);
+    audio.addEventListener('timeupdate', handleTimeUpdate);
+    audio.addEventListener('ended', handleEnded);
+    audio.addEventListener('play', handlePlayEvent);
+    audio.addEventListener('pause', handlePauseEvent);
+
+    return () => {
+      audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      audio.removeEventListener('timeupdate', handleTimeUpdate);
+      audio.removeEventListener('ended', handleEnded);
+      audio.removeEventListener('play', handlePlayEvent);
+      audio.removeEventListener('pause', handlePauseEvent);
+    };
+  }, [isOpen, activeAudioSource, vocalStem, instStem, loopLineIndex, segments]);
+
+  // Load lyrics on open
   useEffect(() => {
     if (isOpen) {
       setVideoUrl(null);
-      // Auto-transcribe or load from SQLite database
       const sourceForLyrics = vocalStem || instStem;
       if (sourceForLyrics) {
         fetchInitialLyrics(sourceForLyrics, false);
@@ -95,7 +170,6 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
       await api.saveLyrics(sourceFile, segmentsToSave, 'tr');
       const nowStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
       setLastSavedTime(nowStr);
-      setIsCachedFromDb(true);
       if (notifyUser) {
         onNotify('success', 'Veritabanına Kaydedildi', `Şarkı sözleri SQLite veritabanına kalıcı olarak kaydedildi (${nowStr}).`);
       }
@@ -123,12 +197,10 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
       if (res.segments && res.segments.length > 0) {
         setSegments(res.segments);
         if (res.cached) {
-          setIsCachedFromDb(true);
           const savedAt = res.updated_at ? new Date(res.updated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Kayıtlı';
           setLastSavedTime(savedAt);
           onNotify('success', 'Veritabanından Yüklendi', `${res.segments.length} satır kayıtlı şarkı sözü SQLite veritabanından anında yüklendi.`);
         } else {
-          setIsCachedFromDb(true);
           setLastSavedTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
           onNotify('success', 'Sözler Çıkarıldı & Kaydedildi!', `${res.segments.length} satır şarkı sözü Whisper AI ile çıkarıldı ve SQLite veritabanına kaydedildi.`);
         }
@@ -156,8 +228,8 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
       const next = [...prev];
       const prevEnd = index !== undefined && next[index] ? next[index].end : 0;
       const newSeg: LyricSegment = {
-        start: prevEnd,
-        end: prevEnd + 4,
+        start: Number(prevEnd.toFixed(2)),
+        end: Number((prevEnd + 4).toFixed(2)),
         text: 'Yeni Şarkı Sözü Satırı...',
       };
       if (index !== undefined) {
@@ -178,32 +250,103 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
     });
   };
 
-  const playLineAudio = (seg: LyricSegment, index: number) => {
-    const audioFile = vocalStem || instStem;
-    if (!audioFile) return;
-
-    if (playingIndex === index && audioRef.current) {
+  // Playback Controls
+  const toggleMasterPlay = () => {
+    if (!audioRef.current) return;
+    if (isPlaying) {
       audioRef.current.pause();
-      setPlayingIndex(null);
+    } else {
+      audioRef.current.play().catch(() => {});
+    }
+  };
+
+  const stepCurrentTime = (delta: number) => {
+    if (!audioRef.current) return;
+    const newT = Math.max(0, Math.min(duration, audioRef.current.currentTime + delta));
+    audioRef.current.currentTime = newT;
+    setCurrentTime(newT);
+  };
+
+  const seekTo = (targetSec: number) => {
+    if (!audioRef.current) return;
+    const clamped = Math.max(0, Math.min(duration || 9999, targetSec));
+    audioRef.current.currentTime = clamped;
+    setCurrentTime(clamped);
+  };
+
+  const handleTimelineClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!progressBarRef.current || duration <= 0) return;
+    const rect = progressBarRef.current.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const fraction = Math.max(0, Math.min(1, clickX / rect.width));
+    seekTo(fraction * duration);
+  };
+
+  const handleTimelineMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!progressBarRef.current || duration <= 0) return;
+    const rect = progressBarRef.current.getBoundingClientRect();
+    const moveX = e.clientX - rect.left;
+    const fraction = Math.max(0, Math.min(1, moveX / rect.width));
+    setHoverTime(fraction * duration);
+  };
+
+  const playLine = (index: number) => {
+    if (!audioRef.current || !segments[index]) return;
+    const seg = segments[index];
+
+    if (activePlayingIndex === index && isPlaying) {
+      audioRef.current.pause();
+      setActivePlayingIndex(null);
       return;
     }
 
-    if (!audioRef.current) {
-      audioRef.current = new Audio();
-    }
-    const audio = audioRef.current;
-    audio.src = `/output/${encodeURIComponent(audioFile)}`;
-    audio.currentTime = seg.start;
-    audio.play().catch(() => {});
-    setPlayingIndex(index);
+    audioRef.current.currentTime = seg.start;
+    audioRef.current.play().catch(() => {});
+    setActivePlayingIndex(index);
+  };
 
-    const checkInterval = setInterval(() => {
-      if (audio.currentTime >= seg.end || audio.paused) {
-        audio.pause();
-        clearInterval(checkInterval);
-        setPlayingIndex(null);
+  const stepSegmentTime = (index: number, field: 'start' | 'end', delta: number) => {
+    setSegments((prev) => {
+      const next = [...prev];
+      const currentVal = Number(next[index][field]) || 0;
+      const newVal = Math.max(0, Number((currentVal + delta).toFixed(2)));
+      next[index] = { ...next[index], [field]: newVal };
+      triggerAutoSave(next);
+      return next;
+    });
+  };
+
+  const setPlayheadToSegment = (index: number, field: 'start' | 'end') => {
+    const cur = Number(currentTime.toFixed(2));
+    setSegments((prev) => {
+      const next = [...prev];
+      next[index] = { ...next[index], [field]: cur };
+      triggerAutoSave(next);
+      return next;
+    });
+    onNotify('info', 'Zaman Ayarlandı', `${field === 'start' ? 'Başlangıç' : 'Bitiş'} zamanı ${formatPrecisionTime(cur)} olarak güncellendi.`);
+  };
+
+  const toggleLoopLine = (index: number) => {
+    if (loopLineIndex === index) {
+      setLoopLineIndex(null);
+    } else {
+      setLoopLineIndex(index);
+      if (segments[index]) {
+        seekTo(segments[index].start);
+        if (audioRef.current && !isPlaying) {
+          audioRef.current.play().catch(() => {});
+        }
       }
-    }, 100);
+    }
+  };
+
+  const formatPrecisionTime = (seconds: number) => {
+    if (isNaN(seconds) || seconds < 0) return '00:00.00';
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    const ms = Math.floor((seconds - Math.floor(seconds)) * 100);
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`;
   };
 
   const handleGenerateVideo = async () => {
@@ -212,6 +355,7 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
       return;
     }
 
+    if (audioRef.current) audioRef.current.pause();
     setRendering(true);
     setVideoUrl(null);
     try {
@@ -240,7 +384,7 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
 
   return createPortal(
     <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-2xl animate-fade-in">
-      <div className="relative w-full max-w-4xl bg-slate-900/95 border border-white/15 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+      <div className="relative w-full max-w-4xl bg-slate-900/95 border border-white/15 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
         {/* Modal Header */}
         <div className="p-5 border-b border-white/10 flex items-center justify-between bg-white/[0.02]">
           <div className="flex items-center gap-3">
@@ -273,8 +417,8 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
           </button>
         </div>
 
-        {/* Studio Tabs Navigation */}
-        <div className="px-6 py-2.5 border-b border-white/5 bg-slate-950/40 flex items-center justify-between">
+        {/* Studio Tabs Navigation & Top Actions */}
+        <div className="px-6 py-2.5 border-b border-white/5 bg-slate-950/40 flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-2">
             <button
               onClick={() => setActiveTab('lyrics')}
@@ -344,9 +488,157 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
           </div>
         </div>
 
-        {/* Tab 1: Interactive Lyric Editor */}
+        {/* Tab 1: Interactive Lyric Editor with Pro Studio Timeline Scrubber */}
         {activeTab === 'lyrics' && (
-          <div className="flex-1 overflow-y-auto p-6 space-y-3 max-h-[55vh]">
+          <div className="flex-1 overflow-y-auto p-6 space-y-4 max-h-[60vh]">
+            {/* Master Precision Audio Player & Timeline Progress Bar */}
+            <div className="p-4 rounded-2xl bg-slate-950/80 border border-white/10 space-y-3 shadow-inner">
+              <div className="flex items-center justify-between gap-4 flex-wrap">
+                {/* Left: Master Play / Rewind / Fast-Forward */}
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => stepCurrentTime(-2)}
+                    className="px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 transition-all active:scale-95 text-xs font-bold flex items-center gap-1 border border-white/5"
+                    title="2 Saniye Geri Sar"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>-2s</span>
+                  </button>
+
+                  <button
+                    onClick={toggleMasterPlay}
+                    className={cn(
+                      "px-4 py-2 rounded-xl font-black text-xs flex items-center gap-2 shadow-lg transition-all active:scale-95",
+                      isPlaying
+                        ? "bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-amber-500/20"
+                        : "bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 shadow-amber-500/20"
+                    )}
+                  >
+                    {isPlaying ? (
+                      <>
+                        <Pause className="w-4 h-4 fill-current" />
+                        <span>Durdur</span>
+                      </>
+                    ) : (
+                      <>
+                        <Play className="w-4 h-4 fill-current ml-0.5" />
+                        <span>Oynat</span>
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    onClick={() => stepCurrentTime(2)}
+                    className="px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 transition-all active:scale-95 text-xs font-bold flex items-center gap-1 border border-white/5"
+                    title="2 Saniye İleri Sar"
+                  >
+                    <FastForward className="w-3.5 h-3.5" />
+                    <span>+2s</span>
+                  </button>
+                </div>
+
+                {/* Center: Audio Source Selection (Vocal vs Instrumental) */}
+                <div className="flex items-center gap-1 bg-slate-900/90 p-1 rounded-xl border border-white/5">
+                  <span className="text-[10px] font-bold text-slate-500 px-2 uppercase font-mono">Ses:</span>
+                  {vocalStem && (
+                    <button
+                      onClick={() => setActiveAudioSource('vocal')}
+                      className={cn(
+                        "px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all",
+                        activeAudioSource === 'vocal'
+                          ? "bg-amber-500/20 text-amber-300 border border-amber-500/30 shadow-sm"
+                          : "text-slate-400 hover:text-white"
+                      )}
+                      title="Söz senkronu yaparken sadece insan sesini net duyun"
+                    >
+                      <Mic2 className="w-3 h-3" />
+                      <span>Vokal (İnsan Sesi)</span>
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setActiveAudioSource('inst')}
+                    className={cn(
+                      "px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all",
+                      activeAudioSource === 'inst'
+                        ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 shadow-sm"
+                        : "text-slate-400 hover:text-white"
+                    )}
+                    title="Müziğin ritmini ve enstrümantal halini dinleyin"
+                  >
+                    <Music className="w-3 h-3" />
+                    <span>Enstrümantal</span>
+                  </button>
+                </div>
+
+                {/* Right: Real-time Millisecond Clock */}
+                <div className="flex items-center gap-2 font-mono text-xs">
+                  <span className="text-amber-400 font-black text-sm bg-slate-900 px-3 py-1 rounded-lg border border-amber-500/20 shadow-inner">
+                    ⏱️ {formatPrecisionTime(currentTime)}
+                  </span>
+                  <span className="text-slate-500">/</span>
+                  <span className="text-slate-400">{formatPrecisionTime(duration)}</span>
+                </div>
+              </div>
+
+              {/* Interactive Scrubbable Timeline Track */}
+              <div
+                ref={progressBarRef}
+                onClick={handleTimelineClick}
+                onMouseMove={handleTimelineMouseMove}
+                onMouseLeave={() => setHoverTime(null)}
+                className="relative w-full h-8 bg-slate-900/90 hover:bg-slate-900 rounded-xl border border-white/10 cursor-pointer overflow-hidden group select-none flex items-center shadow-inner"
+              >
+                {/* Active Segment Region Highlight Block on Timeline */}
+                {activePlayingIndex !== null && segments[activePlayingIndex] && duration > 0 && (
+                  <div
+                    className="absolute top-0 bottom-0 bg-amber-500/30 border-x-2 border-amber-400 pointer-events-none z-10"
+                    style={{
+                      left: `${(segments[activePlayingIndex].start / duration) * 100}%`,
+                      width: `${((segments[activePlayingIndex].end - segments[activePlayingIndex].start) / duration) * 100}%`
+                    }}
+                  />
+                )}
+
+                {/* Overall Song Playback Progress Fill */}
+                <div
+                  className="absolute top-0 bottom-0 left-0 bg-gradient-to-r from-amber-500/30 via-amber-500/50 to-amber-400/80 pointer-events-none transition-all duration-75"
+                  style={{ width: `${duration > 0 ? (currentTime / duration) * 100 : 0}%` }}
+                />
+
+                {/* Playhead Needle Line */}
+                <div
+                  className="absolute top-0 bottom-0 w-1 bg-amber-300 shadow-[0_0_12px_#f59e0b] pointer-events-none z-20"
+                  style={{ left: `${duration > 0 ? (currentTime / duration) * 100 : 0}%` }}
+                />
+
+                {/* Hover Preview Marker & Tooltip */}
+                {hoverTime !== null && duration > 0 && (
+                  <>
+                    <div
+                      className="absolute top-0 bottom-0 w-0.5 bg-white/70 pointer-events-none z-30"
+                      style={{ left: `${(hoverTime / duration) * 100}%` }}
+                    />
+                    <div
+                      className="absolute -top-7 px-2 py-0.5 bg-slate-800 text-amber-300 text-[10px] font-mono font-bold rounded shadow border border-white/20 pointer-events-none z-40 transform -translate-x-1/2"
+                      style={{ left: `${(hoverTime / duration) * 100}%` }}
+                    >
+                      {formatPrecisionTime(hoverTime)}
+                    </div>
+                  </>
+                )}
+
+                {/* Time Markers */}
+                <div className="absolute inset-0 px-3 flex items-center justify-between text-[9px] font-mono text-slate-500 pointer-events-none z-0">
+                  <span>0:00</span>
+                  <span>{formatPrecisionTime(duration * 0.25)}</span>
+                  <span>{formatPrecisionTime(duration * 0.5)}</span>
+                  <span>{formatPrecisionTime(duration * 0.75)}</span>
+                  <span>{formatPrecisionTime(duration)}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* List of Lyric Rows */}
             {loadingLyrics ? (
               <div className="h-64 flex flex-col items-center justify-center gap-3 text-slate-400">
                 <Loader2 className="w-8 h-8 animate-spin text-amber-400" />
@@ -365,237 +657,288 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
                 </button>
               </div>
             ) : (
-              segments.map((seg, idx) => (
-                <div
-                  key={idx}
-                  className="p-3.5 rounded-2xl bg-slate-950/70 border border-white/10 flex flex-col sm:flex-row sm:items-center gap-3 hover:border-amber-500/30 transition-all group"
-                >
-                  {/* Play Slice Button */}
-                  <button
-                    onClick={() => playLineAudio(seg, idx)}
+              segments.map((seg, idx) => {
+                const isRowActive = currentTime >= seg.start && currentTime <= seg.end;
+                const rowDuration = Math.max(0.1, seg.end - seg.start);
+                const rowProgressPercent = isRowActive ? ((currentTime - seg.start) / rowDuration) * 100 : 0;
+                const isLoopingThis = loopLineIndex === idx;
+
+                return (
+                  <div
+                    key={idx}
                     className={cn(
-                      'w-9 h-9 rounded-xl flex items-center justify-center shrink-0 transition-transform active:scale-90',
-                      playingIndex === idx
-                        ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/30'
-                        : 'bg-white/5 hover:bg-white/10 text-slate-300'
+                      "relative p-3.5 rounded-2xl border transition-all group overflow-hidden",
+                      isRowActive
+                        ? "bg-amber-500/10 border-amber-500/60 shadow-lg shadow-amber-500/10"
+                        : activePlayingIndex === idx
+                        ? "bg-slate-950/90 border-amber-500/40"
+                        : "bg-slate-950/70 border-white/10 hover:border-amber-500/30"
                     )}
-                    title="Bu satırı dinle"
                   >
-                    {playingIndex === idx ? (
-                      <Pause className="w-4 h-4 fill-current" />
-                    ) : (
-                      <Play className="w-4 h-4 fill-current ml-0.5" />
+                    {/* Live Row Progress Fill Bar */}
+                    {isRowActive && rowProgressPercent > 0 && (
+                      <div
+                        className="absolute bottom-0 left-0 top-0 bg-gradient-to-r from-amber-500/10 to-amber-500/20 border-r-2 border-amber-400 pointer-events-none transition-all duration-75"
+                        style={{ width: `${Math.min(100, Math.max(0, rowProgressPercent))}%` }}
+                      />
                     )}
-                  </button>
 
-                  {/* Timing Inputs */}
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <div className="space-y-0.5">
-                      <span className="text-[9px] font-mono text-slate-500 uppercase block">Başlangıç</span>
-                      <input
-                        type="number"
-                        step="0.1"
-                        value={seg.start}
-                        onChange={(e) => handleSegmentChange(idx, 'start', parseFloat(e.target.value) || 0)}
-                        className="w-16 p-1.5 rounded-lg bg-slate-900 border border-white/10 text-xs font-mono font-bold text-amber-300 text-center focus:outline-none focus:border-amber-500"
-                      />
+                    <div className="relative z-10 flex flex-col sm:flex-row sm:items-center gap-3">
+                      {/* Play Line Button */}
+                      <button
+                        onClick={() => playLine(idx)}
+                        className={cn(
+                          'w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-transform active:scale-90 shadow-md',
+                          activePlayingIndex === idx && isPlaying
+                            ? 'bg-amber-500 text-slate-950 shadow-amber-500/30'
+                            : 'bg-white/5 hover:bg-amber-500/20 hover:text-amber-300 text-slate-300'
+                        )}
+                        title="Bu satırı dinle ve senkronu test et"
+                      >
+                        {activePlayingIndex === idx && isPlaying ? (
+                          <Pause className="w-4 h-4 fill-current" />
+                        ) : (
+                          <Play className="w-4 h-4 fill-current ml-0.5" />
+                        )}
+                      </button>
+
+                      {/* Loop Line Toggle */}
+                      <button
+                        onClick={() => toggleLoopLine(idx)}
+                        className={cn(
+                          'p-2 rounded-xl text-xs font-bold shrink-0 transition-all active:scale-90',
+                          isLoopingThis
+                            ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/30'
+                            : 'bg-white/5 hover:bg-white/10 text-slate-400'
+                        )}
+                        title={isLoopingThis ? 'Döngüyü Kapat' : 'Bu satırı sürekli tekrarla (İnce ayar için)'}
+                      >
+                        <Repeat className="w-3.5 h-3.5" />
+                      </button>
+
+                      {/* Precision Timing Inputs & Steppers */}
+                      <div className="flex items-center gap-2 shrink-0">
+                        {/* Start Timing Box */}
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="text-[9px] font-mono text-slate-400 uppercase font-bold">Başlangıç</span>
+                            <button
+                              onClick={() => setPlayheadToSegment(idx, 'start')}
+                              title="O an çalan süreyi bu satırın başlangıcı yap"
+                              className="text-[9px] text-amber-400 hover:text-amber-300 font-bold underline cursor-pointer"
+                            >
+                              ⏱️ Şu Anı Al
+                            </button>
+                          </div>
+                          <div className="flex items-center gap-0.5 bg-slate-900 rounded-lg p-0.5 border border-white/10 focus-within:border-amber-500 shadow-inner">
+                            <button
+                              onClick={() => stepSegmentTime(idx, 'start', -0.1)}
+                              title="100ms geriye al"
+                              className="px-1.5 py-0.5 text-[10px] font-mono text-slate-400 hover:text-amber-400 hover:bg-white/5 rounded active:scale-95"
+                            >
+                              -0.1
+                            </button>
+                            <input
+                              type="number"
+                              step="0.05"
+                              value={seg.start}
+                              onChange={(e) => handleSegmentChange(idx, 'start', parseFloat(e.target.value) || 0)}
+                              className="w-16 py-1 bg-transparent text-xs font-mono font-bold text-amber-300 text-center focus:outline-none"
+                            />
+                            <button
+                              onClick={() => stepSegmentTime(idx, 'start', 0.1)}
+                              title="100ms ileriye al"
+                              className="px-1.5 py-0.5 text-[10px] font-mono text-slate-400 hover:text-amber-400 hover:bg-white/5 rounded active:scale-95"
+                            >
+                              +0.1
+                            </button>
+                          </div>
+                        </div>
+
+                        <span className="text-slate-600 self-end pb-2 font-bold">-</span>
+
+                        {/* End Timing Box */}
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="text-[9px] font-mono text-slate-400 uppercase font-bold">Bitiş</span>
+                            <button
+                              onClick={() => setPlayheadToSegment(idx, 'end')}
+                              title="O an çalan süreyi bu satırın bitişi yap"
+                              className="text-[9px] text-amber-400 hover:text-amber-300 font-bold underline cursor-pointer"
+                            >
+                              ⏱️ Şu Anı Al
+                            </button>
+                          </div>
+                          <div className="flex items-center gap-0.5 bg-slate-900 rounded-lg p-0.5 border border-white/10 focus-within:border-amber-500 shadow-inner">
+                            <button
+                              onClick={() => stepSegmentTime(idx, 'end', -0.1)}
+                              title="100ms geriye al"
+                              className="px-1.5 py-0.5 text-[10px] font-mono text-slate-400 hover:text-amber-400 hover:bg-white/5 rounded active:scale-95"
+                            >
+                              -0.1
+                            </button>
+                            <input
+                              type="number"
+                              step="0.05"
+                              value={seg.end}
+                              onChange={(e) => handleSegmentChange(idx, 'end', parseFloat(e.target.value) || 0)}
+                              className="w-16 py-1 bg-transparent text-xs font-mono font-bold text-amber-300 text-center focus:outline-none"
+                            />
+                            <button
+                              onClick={() => stepSegmentTime(idx, 'end', 0.1)}
+                              title="100ms ileriye al"
+                              className="px-1.5 py-0.5 text-[10px] font-mono text-slate-400 hover:text-amber-400 hover:bg-white/5 rounded active:scale-95"
+                            >
+                              +0.1
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Text Input */}
+                      <div className="flex-1">
+                        <input
+                          type="text"
+                          value={seg.text}
+                          onChange={(e) => handleSegmentChange(idx, 'text', e.target.value)}
+                          className={cn(
+                            "w-full p-2.5 rounded-xl border text-xs font-semibold placeholder-slate-500 focus:outline-none focus:border-amber-500 transition-all",
+                            isRowActive
+                              ? "bg-slate-900/90 border-amber-500/50 text-amber-200"
+                              : "bg-slate-900/90 border-white/10 text-white"
+                          )}
+                          placeholder="Şarkı sözü satırı..."
+                        />
+                      </div>
+
+                      {/* Row Actions */}
+                      <div className="flex items-center gap-1 shrink-0 self-end sm:self-center">
+                        <button
+                          onClick={() => handleAddSegment(idx)}
+                          className="p-2 rounded-xl bg-white/[0.03] hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
+                          title="Altına Yeni Satır Ekle"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteSegment(idx)}
+                          className="p-2 rounded-xl bg-white/[0.03] hover:bg-rose-500/20 text-slate-500 hover:text-rose-400 transition-colors"
+                          title="Satırı Sil"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
-                    <span className="text-slate-600 self-end pb-2 font-bold">-</span>
-                    <div className="space-y-0.5">
-                      <span className="text-[9px] font-mono text-slate-500 uppercase block">Bitiş</span>
-                      <input
-                        type="number"
-                        step="0.1"
-                        value={seg.end}
-                        onChange={(e) => handleSegmentChange(idx, 'end', parseFloat(e.target.value) || 0)}
-                        className="w-16 p-1.5 rounded-lg bg-slate-900 border border-white/10 text-xs font-mono font-bold text-amber-300 text-center focus:outline-none focus:border-amber-500"
-                      />
-                    </div>
                   </div>
-
-                  {/* Text Input */}
-                  <div className="flex-1">
-                    <input
-                      type="text"
-                      value={seg.text}
-                      onChange={(e) => handleSegmentChange(idx, 'text', e.target.value)}
-                      className="w-full p-2.5 rounded-xl bg-slate-900/90 border border-white/10 text-xs font-semibold text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
-                      placeholder="Şarkı sözü satırı..."
-                    />
-                  </div>
-
-                  {/* Row Actions */}
-                  <div className="flex items-center gap-1 shrink-0 self-end sm:self-center">
-                    <button
-                      onClick={() => handleAddSegment(idx)}
-                      className="p-2 rounded-xl bg-white/[0.03] hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
-                      title="Altına Yeni Satır Ekle"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => handleDeleteSegment(idx)}
-                      className="p-2 rounded-xl bg-white/[0.03] hover:bg-rose-500/20 text-slate-500 hover:text-rose-400 transition-colors"
-                      title="Satırı Sil"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         )}
 
         {/* Tab 2: Video Customization & Render */}
         {activeTab === 'video' && (
-          <div className="flex-1 overflow-y-auto p-6 space-y-5 max-h-[55vh]">
-            {/* Format Selection (16:9 YouTube vs 9:16 Shorts) */}
-            <div className="space-y-2">
-              <label className="text-[11px] font-bold text-slate-300 uppercase tracking-widest block">
-                Video Formatı
-              </label>
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  type="button"
-                  onClick={() => setAspectRatio('16:9')}
-                  className={cn(
-                    'p-3.5 rounded-2xl border flex items-center gap-3 transition-all text-left group',
-                    aspectRatio === '16:9'
-                      ? 'bg-amber-500/20 border-amber-500/60 shadow-lg shadow-amber-500/10'
-                      : 'bg-slate-950/60 border-white/5 hover:border-white/20'
-                  )}
-                >
-                  <div
+          <div className="flex-1 overflow-y-auto p-6 space-y-6 max-h-[60vh]">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Aspect Ratio Picker */}
+              <div className="p-4 rounded-2xl bg-slate-950/60 border border-white/10 space-y-3">
+                <label className="text-xs font-bold text-slate-300 flex items-center gap-2">
+                  <Monitor className="w-4 h-4 text-amber-400" />
+                  <span>Video Formatı / En Boy Oranı</span>
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => setAspectRatio('16:9')}
                     className={cn(
-                      'p-2.5 rounded-xl transition-colors',
-                      aspectRatio === '16:9' ? 'bg-amber-500 text-slate-950' : 'bg-white/5 text-slate-400'
+                      'p-3 rounded-xl border text-left transition-all flex items-center gap-3',
+                      aspectRatio === '16:9'
+                        ? 'bg-amber-500/20 border-amber-500/50 text-white'
+                        : 'bg-white/5 border-white/5 text-slate-400 hover:text-white'
                     )}
                   >
-                    <Monitor className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <span className="text-xs font-bold text-white block">16:9 YouTube HD Video</span>
-                    <span className="text-[10px] text-slate-400 block">1920x1080 Tam Ekran Karaoke</span>
-                  </div>
-                </button>
+                    <Monitor className="w-5 h-5 text-amber-400" />
+                    <div>
+                      <div className="text-xs font-black">16:9 (Yatay)</div>
+                      <div className="text-[10px] text-slate-400">YouTube Standart</div>
+                    </div>
+                  </button>
 
-                <button
-                  type="button"
-                  onClick={() => setAspectRatio('9:16')}
-                  className={cn(
-                    'p-3.5 rounded-2xl border flex items-center gap-3 transition-all text-left group',
-                    aspectRatio === '9:16'
-                      ? 'bg-amber-500/20 border-amber-500/60 shadow-lg shadow-amber-500/10'
-                      : 'bg-slate-950/60 border-white/5 hover:border-white/20'
-                  )}
-                >
-                  <div
+                  <button
+                    onClick={() => setAspectRatio('9:16')}
                     className={cn(
-                      'p-2.5 rounded-xl transition-colors',
-                      aspectRatio === '9:16' ? 'bg-amber-500 text-slate-950' : 'bg-white/5 text-slate-400'
+                      'p-3 rounded-xl border text-left transition-all flex items-center gap-3',
+                      aspectRatio === '9:16'
+                        ? 'bg-amber-500/20 border-amber-500/50 text-white'
+                        : 'bg-white/5 border-white/5 text-slate-400 hover:text-white'
                     )}
                   >
-                    <Smartphone className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <span className="text-xs font-bold text-white block">9:16 Dikey Video</span>
-                    <span className="text-[10px] text-slate-400 block">TikTok / Shorts / Reels</span>
-                  </div>
-                </button>
+                    <Smartphone className="w-5 h-5 text-amber-400" />
+                    <div>
+                      <div className="text-xs font-black">9:16 (Dikey)</div>
+                      <div className="text-[10px] text-slate-400">Shorts / Reels / TikTok</div>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              {/* Theme Color Picker */}
+              <div className="p-4 rounded-2xl bg-slate-950/60 border border-white/10 space-y-3">
+                <label className="text-xs font-bold text-slate-300 flex items-center gap-2">
+                  <Palette className="w-4 h-4 text-amber-400" />
+                  <span>Görsel Tema & Renk Paleti</span>
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { id: 'gold', name: 'Gold Studio', color: 'from-amber-500 to-amber-700' },
+                    { id: 'neon', name: 'Neon Sky', color: 'from-cyan-500 to-blue-600' },
+                    { id: 'cyberpunk', name: 'Cyberpunk', color: 'from-pink-500 to-purple-600' },
+                    { id: 'emerald', name: 'Emerald Wave', color: 'from-emerald-500 to-teal-700' },
+                  ].map((tItem) => (
+                    <button
+                      key={tItem.id}
+                      onClick={() => setTheme(tItem.id as any)}
+                      className={cn(
+                        'p-2.5 rounded-xl border text-left transition-all flex items-center gap-2.5',
+                        theme === tItem.id
+                          ? 'bg-white/10 border-amber-500/50 text-white shadow-md'
+                          : 'bg-white/5 border-white/5 text-slate-400 hover:text-white'
+                      )}
+                    >
+                      <div className={cn('w-4 h-4 rounded-full bg-gradient-to-r shrink-0', tItem.color)} />
+                      <span className="text-xs font-bold truncate">{tItem.name}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
-            {/* Visual Color Theme */}
-            <div className="space-y-2">
-              <label className="text-[11px] font-bold text-slate-300 uppercase tracking-widest block">
-                Görsel Tema & Söz Vurgusu
+            {/* Video Metadata Inputs */}
+            <div className="p-4 rounded-2xl bg-slate-950/60 border border-white/10 space-y-3">
+              <label className="text-xs font-bold text-slate-300 flex items-center gap-2">
+                <Music className="w-4 h-4 text-amber-400" />
+                <span>Şarkı Bilgileri (Video Üst Başlığı İçin)</span>
               </label>
-              <div className="grid grid-cols-4 gap-2.5">
-                <button
-                  type="button"
-                  onClick={() => setTheme('gold')}
-                  className={cn(
-                    'p-3 rounded-2xl border text-center transition-all',
-                    theme === 'gold'
-                      ? 'bg-amber-500/20 border-amber-500 text-white shadow-md'
-                      : 'bg-slate-950/60 border-white/5 text-slate-400 hover:text-white'
-                  )}
-                >
-                  <div className="w-4 h-4 rounded-full bg-gradient-to-r from-amber-400 to-amber-600 mx-auto mb-1.5" />
-                  <span className="text-xs font-bold block">Gold Studio</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setTheme('neon')}
-                  className={cn(
-                    'p-3 rounded-2xl border text-center transition-all',
-                    theme === 'neon'
-                      ? 'bg-indigo-500/20 border-indigo-500 text-white shadow-md'
-                      : 'bg-slate-950/60 border-white/5 text-slate-400 hover:text-white'
-                  )}
-                >
-                  <div className="w-4 h-4 rounded-full bg-gradient-to-r from-sky-400 to-indigo-500 mx-auto mb-1.5" />
-                  <span className="text-xs font-bold block">Neon Sky</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setTheme('cyberpunk')}
-                  className={cn(
-                    'p-3 rounded-2xl border text-center transition-all',
-                    theme === 'cyberpunk'
-                      ? 'bg-pink-500/20 border-pink-500 text-white shadow-md'
-                      : 'bg-slate-950/60 border-white/5 text-slate-400 hover:text-white'
-                  )}
-                >
-                  <div className="w-4 h-4 rounded-full bg-gradient-to-r from-pink-500 to-purple-500 mx-auto mb-1.5" />
-                  <span className="text-xs font-bold block">Cyberpunk</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setTheme('emerald')}
-                  className={cn(
-                    'p-3 rounded-2xl border text-center transition-all',
-                    theme === 'emerald'
-                      ? 'bg-emerald-500/20 border-emerald-500 text-white shadow-md'
-                      : 'bg-slate-950/60 border-white/5 text-slate-400 hover:text-white'
-                  )}
-                >
-                  <div className="w-4 h-4 rounded-full bg-gradient-to-r from-emerald-400 to-teal-600 mx-auto mb-1.5" />
-                  <span className="text-xs font-bold block">Emerald</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Title & Artist */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-widest block">
-                  Şarkı Başlığı
-                </label>
-                <input
-                  type="text"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  className="w-full bg-slate-950 border border-white/10 rounded-2xl p-3 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
-                  placeholder="Şarkı adı..."
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-widest block">
-                  Sanatçı / Açıklama
-                </label>
-                <input
-                  type="text"
-                  value={artist}
-                  onChange={(e) => setArtist(e.target.value)}
-                  className="w-full bg-slate-950 border border-white/10 rounded-2xl p-3 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
-                  placeholder="Sanatçı adı..."
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <span className="text-[10px] font-mono text-slate-500 uppercase block mb-1">Şarkı Adı</span>
+                  <input
+                    type="text"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    className="w-full p-2.5 rounded-xl bg-slate-900 border border-white/10 text-xs font-bold text-white focus:outline-none focus:border-amber-500"
+                    placeholder="Şarkı Adı..."
+                  />
+                </div>
+                <div>
+                  <span className="text-[10px] font-mono text-slate-500 uppercase block mb-1">Sanatçı / Kanal</span>
+                  <input
+                    type="text"
+                    value={artist}
+                    onChange={(e) => setArtist(e.target.value)}
+                    className="w-full p-2.5 rounded-xl bg-slate-900 border border-white/10 text-xs font-bold text-white focus:outline-none focus:border-amber-500"
+                    placeholder="Sanatçı..."
+                  />
+                </div>
               </div>
             </div>
 
@@ -625,34 +968,32 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
           </div>
         )}
 
-        {/* Modal Footer Actions */}
-        <div className="p-5 border-t border-white/10 bg-slate-950/60 flex items-center justify-between gap-3">
-          <div className="text-[11px] text-slate-500">
-            {segments.length} satır söz hazır • 1080p HD Enstrümantal
+        {/* Modal Footer */}
+        <div className="p-5 border-t border-white/10 bg-slate-950/60 flex items-center justify-between">
+          <div className="text-xs text-slate-400">
+            <span className="font-bold text-amber-400">{segments.length}</span> satır söz hazır • 1080p HD Enstrümantal
           </div>
 
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-3">
             <button
-              type="button"
               onClick={() => {
                 if (audioRef.current) audioRef.current.pause();
                 onClose();
               }}
-              className="px-4 py-2.5 rounded-xl bg-white/[0.05] hover:bg-white/10 text-slate-300 font-bold text-xs transition-colors"
+              className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-bold transition-all"
             >
               Kapat
             </button>
 
             <button
-              type="button"
               onClick={handleGenerateVideo}
               disabled={rendering || segments.length === 0}
-              className="px-5 py-2.5 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-black text-xs flex items-center gap-2 shadow-xl shadow-amber-500/25 transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
+              className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs flex items-center gap-2 shadow-lg shadow-amber-500/20 active:scale-95 transition-all disabled:opacity-50"
             >
               {rendering ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>1080p Karaoke Render Ediliyor...</span>
+                  <span>FFmpeg 1080p Render Ediliyor...</span>
                 </>
               ) : (
                 <>

@@ -1,4 +1,4 @@
-import { AvailableModels, ModelStatus, SeparationParams, TaskStatus, SearchResult, EnsembleSlot } from './types';
+import { AvailableModels, ModelStatus, SeparationParams, TaskStatus, SearchResult, EnsembleSlot, LyricSegment, LyricsResponse } from './types';
 
 async function safeFetch(path: string, options?: RequestInit): Promise<Response> {
   const isBrowser = typeof window !== 'undefined';
