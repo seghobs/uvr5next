@@ -64,7 +64,7 @@ export default function StudioPage() {
   // Backend Models State
   const [availableModels, setAvailableModels] = useState<AvailableModels>({});
   const [selectedModel, setSelectedModel] = useState<string>('');
-  const [outputFormat, setOutputFormat] = useState<string>('mp3');
+  const [outputFormat, setOutputFormat] = useState<string>('flac');
   const [device, setDevice] = useState<string>('CUDA (Auto)');
   const [showSettings, setShowSettings] = useState(false);
   const [isModelHubOpen, setIsModelHubOpen] = useState(false);

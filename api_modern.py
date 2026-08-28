@@ -415,7 +415,7 @@ class SeparationRequest(BaseModel):
     model_type: str  # "roformer", "mdx23c", "mdxnet", "vrarch", "demucs"
     model_key: str = Field(..., min_length=1, max_length=256)
     audio_path: str = Field(..., min_length=1, max_length=1024)
-    out_format: str = Field(default="mp3", max_length=10)
+    out_format: str = Field(default="flac", max_length=10)
     params: dict = Field(default_factory=dict)
 
     @field_validator("model_type")
@@ -828,7 +828,7 @@ async def start_ensemble(request: dict, background_tasks: BackgroundTasks):
     models = request.get("models", [])
     if not isinstance(models, list) or len(models) == 0:
         raise HTTPException(status_code=400, detail="models list required")
-    out_format = request.get("out_format", "mp3")
+    out_format = request.get("out_format", "flac")
     if out_format not in core.output_format:
         raise HTTPException(status_code=400, detail="Invalid out_format")
     task_id = _create_task({"message": "Starting Ensemble...", "model_type": "ensemble"})
@@ -1023,7 +1023,7 @@ class RemixRequest(BaseModel):
     inst_gain: float = Field(default=0, ge=-30, le=16)
     pitch_shift: float = Field(default=0, ge=-12, le=12)
     tempo_factor: float = Field(default=1.0, ge=0.5, le=2.0)
-    out_format: str = Field(default="mp3", max_length=10)
+    out_format: str = Field(default="flac", max_length=10)
 
 @app.post("/remix")
 async def remix_audio(request: RemixRequest):
@@ -1122,7 +1122,7 @@ class BatchRequest(BaseModel):
     output_dir: str = Field(..., min_length=1, max_length=1024)
     model_type: str = Field(..., pattern="^(roformer|mdx23c|mdxnet|vrarch|demucs)$")
     model_key: str = Field(..., min_length=1, max_length=256)
-    out_format: str = Field(default="mp3")
+    out_format: str = Field(default="flac")
     params: dict = Field(default_factory=dict)
 
 def run_batch_task(task_id, req: BatchRequest):
@@ -1358,7 +1358,7 @@ async def transcribe_lyrics_endpoint(req: LyricsRequest):
 class QuickCleanRequest(BaseModel):
     file_name: str = Field(..., min_length=1, max_length=256)
     clean_type: str = Field(..., pattern="^(dereverb|debleed)$")
-    out_format: Optional[str] = "mp3"
+    out_format: Optional[str] = "flac"
 
 @app.post("/quick_clean")
 async def quick_clean_endpoint(req: QuickCleanRequest, background_tasks: BackgroundTasks):
