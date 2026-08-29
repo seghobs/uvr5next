@@ -88,11 +88,22 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
     };
   }, []);
 
-  // Video Customization
+  // Video Customization & Header Banner
   const [aspectRatio, setAspectRatio] = useState<'16:9' | '9:16'>('16:9');
   const [theme, setTheme] = useState<'gold' | 'neon' | 'cyberpunk' | 'emerald'>('gold');
-  const [title, setTitle] = useState(instStem.replace(/\.[^/.]+$/, '').replace(/_(Instrumental|other).*/i, ''));
-  const [artist, setArtist] = useState('Karaoke Track');
+  const [headerPrefix, setHeaderPrefix] = useState('KARAOKE STUDIO');
+  const [showHeader, setShowHeader] = useState(true);
+  const [title, setTitle] = useState(() => {
+    const clean = instStem
+      .replace(/\.[^/.]+$/, '')
+      .replace(/^(Ensemble|BS-Roformer|MDX|Demucs|VR|UVR)_/i, '')
+      .replace(/_(Instrumental|Vocals|other|vocals|inst|drums|bass)/gi, '')
+      .replace(/_\d{6,}/g, '')
+      .replace(/_/g, ' ')
+      .trim();
+    return clean || 'Karaoke Track';
+  });
+  const [artist, setArtist] = useState('UVR5 AI Studio');
   const [activeTab, setActiveTab] = useState<'lyrics' | 'video'>('lyrics');
 
   // Precision Audio Player State
@@ -754,6 +765,8 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
         segments: segments,
         title: title,
         artist: artist,
+        header_text: showHeader ? headerPrefix : '',
+        show_header: showHeader,
         aspect_ratio: aspectRatio,
         theme: theme,
       });
@@ -1538,34 +1551,73 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
               </div>
             </div>
 
-            {/* Video Metadata Inputs */}
+            {/* Video Header & Watermark Banner Customizer */}
             <div className="p-4 rounded-2xl bg-slate-950/60 border border-white/10 space-y-3">
-              <label className="text-xs font-bold text-slate-300 flex items-center gap-2">
-                <Music className="w-4 h-4 text-amber-400" />
-                <span>Şarkı Bilgileri (Video Üst Başlığı İçin)</span>
-              </label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <span className="text-[10px] font-mono text-slate-500 uppercase block mb-1">Şarkı Adı</span>
-                  <input
-                    type="text"
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                    className="w-full p-2.5 rounded-xl bg-slate-900 border border-white/10 text-xs font-bold text-white focus:outline-none focus:border-amber-500"
-                    placeholder="Şarkı Adı..."
-                  />
-                </div>
-                <div>
-                  <span className="text-[10px] font-mono text-slate-500 uppercase block mb-1">Sanatçı / Kanal</span>
-                  <input
-                    type="text"
-                    value={artist}
-                    onChange={(e) => setArtist(e.target.value)}
-                    className="w-full p-2.5 rounded-xl bg-slate-900 border border-white/10 text-xs font-bold text-white focus:outline-none focus:border-amber-500"
-                    placeholder="Sanatçı..."
-                  />
-                </div>
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-slate-300 flex items-center gap-2">
+                  <Music className="w-4 h-4 text-amber-400" />
+                  <span>Video Üst Başlığı & Filigran (Özelleştirilebilir)</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setShowHeader(!showHeader)}
+                  className={cn(
+                    "px-3 py-1 rounded-xl text-xs font-bold transition-all border",
+                    showHeader
+                      ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
+                      : "bg-white/5 text-slate-400 border-white/10"
+                  )}
+                >
+                  {showHeader ? "✓ Başlık Açık" : "✕ Başlık Gizli"}
+                </button>
               </div>
+
+              {showHeader && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <span className="text-[10px] font-mono text-slate-400 uppercase block mb-1 font-bold">1. Ön Başlık / Kanal Adı</span>
+                      <input
+                        type="text"
+                        value={headerPrefix}
+                        onChange={(e) => setHeaderPrefix(e.target.value)}
+                        className="w-full p-2.5 rounded-xl bg-slate-900 border border-white/10 text-xs font-bold text-white focus:outline-none focus:border-amber-500"
+                        placeholder="Örn: KARAOKE STUDIO, @Kanalım..."
+                      />
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-mono text-slate-400 uppercase block mb-1 font-bold">2. Şarkı Adı</span>
+                      <input
+                        type="text"
+                        value={title}
+                        onChange={(e) => setTitle(e.target.value)}
+                        className="w-full p-2.5 rounded-xl bg-slate-900 border border-white/10 text-xs font-bold text-white focus:outline-none focus:border-amber-500"
+                        placeholder="Şarkı Adı..."
+                      />
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-mono text-slate-400 uppercase block mb-1 font-bold">3. Sanatçı Adı</span>
+                      <input
+                        type="text"
+                        value={artist}
+                        onChange={(e) => setArtist(e.target.value)}
+                        className="w-full p-2.5 rounded-xl bg-slate-900 border border-white/10 text-xs font-bold text-white focus:outline-none focus:border-amber-500"
+                        placeholder="Sanatçı..."
+                      />
+                    </div>
+                  </div>
+
+                  {/* Live Header Text Preview */}
+                  <div className="p-3 rounded-xl bg-black/50 border border-white/10 flex items-center justify-between gap-2">
+                    <span className="text-[10px] font-mono uppercase text-slate-500 font-bold shrink-0">Ekranda Gözükecek Başlık:</span>
+                    <span className="text-xs font-bold font-mono text-amber-300 truncate">
+                      {headerPrefix.trim() ? `${headerPrefix.trim()} • ` : ''}
+                      {title.trim() || 'Şarkı Adı'}
+                      {artist.trim() ? ` - ${artist.trim()}` : ''}
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Video Preview Player (when rendered) */}

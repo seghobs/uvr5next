@@ -1769,8 +1769,10 @@ async def generate_visualizer_endpoint(req: VisualizerRequest):
 class KaraokeVideoRequest(BaseModel):
     inst_file: str = Field(..., min_length=1, max_length=256)
     segments: List[LyricSegmentModel]
-    title: Optional[str] = "Karaoke Track"
-    artist: Optional[str] = "UVR5 AI Studio"
+    title: Optional[str] = ""
+    artist: Optional[str] = ""
+    header_text: Optional[str] = ""
+    show_header: Optional[bool] = True
     aspect_ratio: str = Field(default="16:9", pattern="^(16:9|9:16)$")
     theme: str = Field(default="gold", pattern="^(gold|neon|cyberpunk|emerald)$")
 
@@ -1841,8 +1843,31 @@ async def generate_karaoke_video_endpoint(req: KaraokeVideoRequest):
             "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
         ]
 
-        title_text = f"KARAOKE STUDIO • {req.title or 'Karaoke'} - {req.artist or 'UVR5'}"
-        ass_lines.append(f"Dialogue: 0,0:00:00.00,1:00:00.00,Title,,0,0,0,,{title_text}")
+        # User Customizable Title Header / Watermark banner
+        if req.show_header is not False:
+            parts = []
+            if req.header_text and req.header_text.strip():
+                parts.append(req.header_text.strip())
+            
+            song_info = []
+            if req.title and req.title.strip():
+                song_info.append(req.title.strip())
+            if req.artist and req.artist.strip():
+                song_info.append(req.artist.strip())
+            
+            if song_info:
+                song_str = " - ".join(song_info)
+                if parts:
+                    title_text = f"{parts[0]} • {song_str}"
+                else:
+                    title_text = song_str
+            elif parts:
+                title_text = parts[0]
+            else:
+                title_text = ""
+
+            if title_text:
+                ass_lines.append(f"Dialogue: 0,0:00:00.00,1:00:00.00,Title,,0,0,0,,{title_text}")
 
         # 1. Determine segments to use: prioritize request segments and persist to SQLite
         segments_to_use = req.segments

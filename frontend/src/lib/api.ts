@@ -319,6 +319,8 @@ export const api = {
     segments: Array<{ start: number; end: number; text: string }>;
     title?: string;
     artist?: string;
+    header_text?: string;
+    show_header?: boolean;
     aspect_ratio?: '16:9' | '9:16';
     theme?: 'gold' | 'neon' | 'cyberpunk' | 'emerald';
   }): Promise<{ status: string; video_file: string; download_url: string }> {
