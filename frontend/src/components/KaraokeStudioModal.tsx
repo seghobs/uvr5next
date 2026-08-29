@@ -393,7 +393,11 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
   const handleSegmentChange = (index: number, field: keyof LyricSegment, val: string | number) => {
     setSegments((prev) => {
       const next = [...prev];
-      next[index] = { ...next[index], [field]: val };
+      const updated = { ...next[index], [field]: val };
+      if (field === 'text' || field === 'start' || field === 'end') {
+        delete (updated as any).words;
+      }
+      next[index] = updated;
       triggerAutoSave(next, false);
       return next;
     });

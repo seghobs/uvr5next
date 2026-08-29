@@ -1900,88 +1900,45 @@ async def generate_karaoke_video_endpoint(req: KaraokeVideoRequest):
             seg_dur = max(0.2, round(seg.end - seg.start, 2))
             num_w = len(raw_words)
 
-            # Check if Whisper's seg.words is still valid for this edited text and timing
-            use_whisper_words = False
-            if seg.words and len(seg.words) == num_w:
-                clean_whisper = [re.sub(r'[^\w]', '', w.word.strip().lower()) for w in seg.words]
-                clean_user = [re.sub(r'[^\w]', '', w.strip().lower()) for w in raw_words]
-                if clean_whisper == clean_user:
-                    w_start = seg.words[0].start
-                    w_end = seg.words[-1].end
-                    if abs(w_start - seg.start) < 0.4 and abs(w_end - seg.end) < 0.6:
-                        use_whisper_words = True
-
-            if use_whisper_words:
-                cur_t = seg.start
-                w_tags = []
-                for w_idx, w in enumerate(seg.words):
-                    gap = round(w.start - cur_t, 2)
-                    if gap >= 0.08:
-                        gap_cs = int(gap * 100)
-                        if gap >= 0.45:
-                            w_tags.append(f"{{\\k{gap_cs}}}(es 💨) ")
-                        else:
-                            w_tags.append(f"{{\\k{gap_cs}}}")
-                    
-                    if w_idx == num_w - 1:
-                        w_end = max(w.end, seg.end)
-                        held_dur = max(0.15, round(w_end - w.start, 2))
-                        clean_w = re.sub(r'[\.\,\!\?\~\s]+$', '', w.word)
-                        if held_dur >= 1.0:
-                            num_dots = min(6, max(3, int(held_dur * 2.0)))
-                            w_disp = f"{clean_w}{'.' * num_dots}"
-                        else:
-                            w_disp = w.word
-                        dur_cs = int(held_dur * 100)
-                        w_tags.append(f"{{\\kf{dur_cs}}}{w_disp} ")
-                        cur_t = w_end
-                    else:
-                        w_end = w.end
-                        dur = max(0.12, round(w_end - w.start, 2))
-                        dur_cs = int(dur * 100)
-                        w_tags.append(f"{{\\kf{dur_cs}}}{w.word} ")
-                        cur_t = w_end
-                active_karaoke_text = "".join(w_tags).strip()
+            # Strictly distribute [seg.start, seg.end] duration across the exact edited words in seg.text
+            w_tags = []
+            if num_w == 1:
+                clean_w = re.sub(r'[\.\,\!\?\~\s]+$', '', raw_words[0])
+                num_dots = min(6, max(3, int(seg_dur * 2.0))) if seg_dur >= 1.0 else 0
+                w_disp = f"{clean_w}{'.' * num_dots}" if num_dots > 0 else raw_words[0]
+                w_tags.append(f"{{\\kf{int(seg_dur * 100)}}}{w_disp}")
             else:
-                # User edited text or adjusted timing: Strictly distribute [seg.start, seg.end] proportionally based on the edited words!
-                w_tags = []
-                if num_w == 1:
-                    clean_w = re.sub(r'[\.\,\!\?\~\s]+$', '', raw_words[0])
-                    num_dots = min(6, max(3, int(seg_dur * 2.0))) if seg_dur >= 1.0 else 0
-                    w_disp = f"{clean_w}{'.' * num_dots}" if num_dots > 0 else raw_words[0]
-                    w_tags.append(f"{{\\kf{int(seg_dur * 100)}}}{w_disp}")
+                word_weights = [max(1, len(w)) for w in raw_words]
+                if seg_dur >= num_w * 0.7:
+                    # Slower tempo / sustain at the end of the line
+                    leading_pool = seg_dur * 0.60
+                    last_w_dur = max(0.3, seg_dur - leading_pool)
+                    lead_weight = sum(word_weights[:-1]) or 1
+                    
+                    for i, w in enumerate(raw_words[:-1]):
+                        w_dur = max(0.15, (word_weights[i] / lead_weight) * leading_pool)
+                        w_cs = int(w_dur * 100)
+                        w_tags.append(f"{{\\kf{w_cs}}}{w} ")
+                    
+                    last_w = raw_words[-1]
+                    clean_w = re.sub(r'[\.\,\!\?\~\s]+$', '', last_w)
+                    num_dots = min(6, max(3, int(last_w_dur * 2.0))) if last_w_dur >= 1.0 else 0
+                    w_disp = f"{clean_w}{'.' * num_dots}" if num_dots > 0 else last_w
+                    w_tags.append(f"{{\\kf{int(last_w_dur * 100)}}}{w_disp}")
                 else:
-                    word_weights = [max(1, len(w)) for w in raw_words]
-                    if seg_dur >= num_w * 0.7:
-                        # Sustain on the final word
-                        leading_pool = seg_dur * 0.60
-                        last_w_dur = max(0.3, seg_dur - leading_pool)
-                        lead_weight = sum(word_weights[:-1]) or 1
-                        
-                        for i, w in enumerate(raw_words[:-1]):
-                            w_dur = max(0.15, (word_weights[i] / lead_weight) * leading_pool)
-                            w_cs = int(w_dur * 100)
+                    total_weight = sum(word_weights) or 1
+                    for i, w in enumerate(raw_words):
+                        w_dur = max(0.12, (word_weights[i] / total_weight) * seg_dur)
+                        w_cs = int(w_dur * 100)
+                        if i == num_w - 1:
+                            clean_w = re.sub(r'[\.\,\!\?\~\s]+$', '', w)
+                            num_dots = min(6, max(3, int(w_dur * 2.0))) if w_dur >= 1.0 else 0
+                            w_disp = f"{clean_w}{'.' * num_dots}" if num_dots > 0 else w
+                            w_tags.append(f"{{\\kf{w_cs}}}{w_disp}")
+                        else:
                             w_tags.append(f"{{\\kf{w_cs}}}{w} ")
-                        
-                        last_w = raw_words[-1]
-                        clean_w = re.sub(r'[\.\,\!\?\~\s]+$', '', last_w)
-                        num_dots = min(6, max(3, int(last_w_dur * 2.0))) if last_w_dur >= 1.0 else 0
-                        w_disp = f"{clean_w}{'.' * num_dots}" if num_dots > 0 else last_w
-                        w_tags.append(f"{{\\kf{int(last_w_dur * 100)}}}{w_disp}")
-                    else:
-                        total_weight = sum(word_weights) or 1
-                        for i, w in enumerate(raw_words):
-                            w_dur = max(0.12, (word_weights[i] / total_weight) * seg_dur)
-                            w_cs = int(w_dur * 100)
-                            if i == num_w - 1:
-                                clean_w = re.sub(r'[\.\,\!\?\~\s]+$', '', w)
-                                num_dots = min(6, max(3, int(w_dur * 2.0))) if w_dur >= 1.0 else 0
-                                w_disp = f"{clean_w}{'.' * num_dots}" if num_dots > 0 else w
-                                w_tags.append(f"{{\\kf{w_cs}}}{w_disp}")
-                            else:
-                                w_tags.append(f"{{\\kf{w_cs}}}{w} ")
 
-                active_karaoke_text = "".join(w_tags).strip()
+            active_karaoke_text = "".join(w_tags).strip()
             
             # Active line with precise word timing & sustain
             ass_lines.append(f"Dialogue: 1,{st},{en},Active,,0,0,0,,{active_karaoke_text}")
