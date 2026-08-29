@@ -1823,6 +1823,9 @@ async def generate_karaoke_video_endpoint(req: KaraokeVideoRequest):
         font_size_upcoming = 40 if is_vertical else 36
         margin_v_active = 860 if is_vertical else 420
         margin_v_upcoming = 700 if is_vertical else 310
+        x_center = res_x // 2
+        y_active = 1060 if is_vertical else 640
+        y_upcoming = 1220 if is_vertical else 770
 
         ass_lines = [
             "[Script Info]",
@@ -1987,14 +1990,20 @@ async def generate_karaoke_video_endpoint(req: KaraokeVideoRequest):
 
             active_karaoke_text = "".join(w_tags).strip()
             
-            # Line 1: Active Singing Line (Gold fill with bold stroke)
-            ass_lines.append(f"Dialogue: 1,{st},{en},Active,,0,0,0,,{active_karaoke_text}")
+            # Line 1: Active Singing Line (Animates upward from upcoming position + Smooth opacity fade-out)
+            if idx == 0:
+                active_anim = f"{{\\pos({x_center}, {y_active})\\fad(250, 300)}}"
+            else:
+                active_anim = f"{{\\move({x_center}, {y_upcoming}, {x_center}, {y_active}, 0, 350)\\fad(120, 300)}}"
+
+            ass_lines.append(f"Dialogue: 1,{st},{en},Active,,0,0,0,,{active_anim}{active_karaoke_text}")
             
-            # Line 2: Continuous Upcoming Line Preview directly underneath
+            # Line 2: Continuous Upcoming Line Preview directly underneath with smooth fade
             if idx + 1 < len(segments_to_use):
                 next_text = segments_to_use[idx + 1].text.strip()
                 if next_text:
-                    ass_lines.append(f"Dialogue: 0,{st},{en},Upcoming,,0,0,0,,{next_text}")
+                    upcoming_anim = f"{{\\pos({x_center}, {y_upcoming})\\fad(300, 150)}}"
+                    ass_lines.append(f"Dialogue: 0,{st},{en},Upcoming,,0,0,0,,{upcoming_anim}{next_text}")
 
         timestamp_id = int(time.time())
         ass_filename = f"karaoke_sub_{timestamp_id}.ass"
