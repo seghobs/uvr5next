@@ -162,21 +162,37 @@ def save_lyrics_db(file_name: str, language: str, segments: list, is_edited: boo
     except Exception as e:
         print(f"Error saving lrc/srt to disk: {e}")
 
+    # Identify all stem variants (Instrumental, Vocals, etc.) to keep them in sync
+    keys_to_save = [key]
+    if "instrumental" in key:
+        keys_to_save.append(key.replace("instrumental", "vocals"))
+        keys_to_save.append(key.replace("instrumental", "vocal"))
+    elif "inst" in key:
+        keys_to_save.append(key.replace("inst", "vocals"))
+        keys_to_save.append(key.replace("inst", "vocal"))
+    elif "vocals" in key:
+        keys_to_save.append(key.replace("vocals", "instrumental"))
+        keys_to_save.append(key.replace("vocals", "inst"))
+    elif "vocal" in key:
+        keys_to_save.append(key.replace("vocal", "instrumental"))
+        keys_to_save.append(key.replace("vocal", "inst"))
+
     try:
         with sqlite3.connect(str(FAVORITES_DB_PATH)) as conn:
             cursor = conn.cursor()
-            cursor.execute("""
-                INSERT INTO lyrics (file_key, file_name, language, segments_json, lrc_content, srt_content, is_edited, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                ON CONFLICT(file_key) DO UPDATE SET
-                    file_name = excluded.file_name,
-                    language = excluded.language,
-                    segments_json = excluded.segments_json,
-                    lrc_content = excluded.lrc_content,
-                    srt_content = excluded.srt_content,
-                    is_edited = excluded.is_edited,
-                    updated_at = CURRENT_TIMESTAMP;
-            """, (key, file_name, language or "tr", segments_json, lrc_content, srt_content, 1 if is_edited else 0))
+            for k in set(keys_to_save):
+                cursor.execute("""
+                    INSERT INTO lyrics (file_key, file_name, language, segments_json, lrc_content, srt_content, is_edited, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(file_key) DO UPDATE SET
+                        file_name = excluded.file_name,
+                        language = excluded.language,
+                        segments_json = excluded.segments_json,
+                        lrc_content = excluded.lrc_content,
+                        srt_content = excluded.srt_content,
+                        is_edited = excluded.is_edited,
+                        updated_at = CURRENT_TIMESTAMP;
+                """, (k, file_name, language or "tr", segments_json, lrc_content, srt_content, 1 if is_edited else 0))
             conn.commit()
     except Exception as e:
         print(f"Error saving lyrics to SQLite: {e}")

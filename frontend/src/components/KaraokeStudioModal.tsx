@@ -342,12 +342,29 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
     }
   };
 
-  const triggerAutoSave = (newSegments: LyricSegment[]) => {
+  const triggerAutoSave = (newSegments: LyricSegment[], immediate = false) => {
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    saveTimeoutRef.current = setTimeout(() => {
+    if (immediate) {
       saveToDatabase(newSegments, false);
-    }, 1000);
+    } else {
+      saveTimeoutRef.current = setTimeout(() => {
+        saveToDatabase(newSegments, false);
+      }, 350);
+    }
   };
+
+  // Flush any pending auto-save immediately on modal close or unmount
+  useEffect(() => {
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        const sourceFile = vocalStem || instStem;
+        if (sourceFile && segments.length > 0) {
+          api.saveLyrics(sourceFile, segments, 'tr').catch(() => {});
+        }
+      }
+    };
+  }, [segments, vocalStem, instStem]);
 
   const fetchInitialLyrics = async (sourceFile: string, force = false) => {
     setLoadingLyrics(true);
@@ -377,7 +394,7 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
     setSegments((prev) => {
       const next = [...prev];
       next[index] = { ...next[index], [field]: val };
-      triggerAutoSave(next);
+      triggerAutoSave(next, false);
       return next;
     });
   };
@@ -405,7 +422,7 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
         };
         next.unshift(newSeg);
       }
-      triggerAutoSave(next);
+      triggerAutoSave(next, true);
       return next;
     });
   };
@@ -413,7 +430,7 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
   const handleDeleteSegment = (index: number) => {
     setSegments((prev) => {
       const next = prev.filter((_, i) => i !== index);
-      triggerAutoSave(next);
+      triggerAutoSave(next, true);
       return next;
     });
   };
@@ -479,7 +496,7 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
       const currentVal = Number(next[index][field]) || 0;
       const newVal = Math.max(0, Number((currentVal + delta).toFixed(2)));
       next[index] = { ...next[index], [field]: newVal };
-      triggerAutoSave(next);
+      triggerAutoSave(next, true);
       return next;
     });
   };
@@ -489,7 +506,7 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
     setSegments((prev) => {
       const next = [...prev];
       next[index] = { ...next[index], [field]: cur };
-      triggerAutoSave(next);
+      triggerAutoSave(next, true);
       return next;
     });
     onNotify('info', 'Zaman Ayarlandı', `${field === 'start' ? 'Başlangıç' : 'Bitiş'} zamanı ${formatPrecisionTime(cur)} olarak güncellendi.`);
