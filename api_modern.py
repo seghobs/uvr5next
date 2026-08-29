@@ -1816,10 +1816,11 @@ async def generate_karaoke_video_endpoint(req: KaraokeVideoRequest):
             cs = int((sec - int(sec)) * 100)
             return f"{hrs}:{mins:02d}:{secs:02d}.{cs:02d}"
 
-        font_size_active = 68 if is_vertical else 64
-        font_size_upcoming = 42 if is_vertical else 38
-        margin_v_active = 780 if is_vertical else 440
-        margin_v_upcoming = 640 if is_vertical else 320
+        # 16:9 / 9:16 Optimized typography and line spacing
+        font_size_active = 62 if is_vertical else 56
+        font_size_upcoming = 40 if is_vertical else 36
+        margin_v_active = 860 if is_vertical else 420
+        margin_v_upcoming = 700 if is_vertical else 310
 
         ass_lines = [
             "[Script Info]",
@@ -1830,9 +1831,9 @@ async def generate_karaoke_video_endpoint(req: KaraokeVideoRequest):
             "",
             "[V4+ Styles]",
             "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-            f"Style: Title, Arial, 32, &H00FFFFFF, &H00000000, &H00000000, &H80000000, -1, 0, 0, 0, 100, 100, 2, 0, 1, 3, 2, 8, 60, 60, 50, 1",
-            f"Style: BreakNotice, Arial, 46, {break_color}, &H00000000, &H00000000, &H90000000, -1, 1, 0, 0, 100, 100, 2, 0, 1, 4, 3, 2, 80, 80, {margin_v_active}, 1",
-            f"Style: BreathCue, Arial, 34, &H00A8FFB2, &H00000000, &H00000000, &H90000000, -1, 0, 0, 0, 100, 100, 2, 0, 1, 3, 2, 2, 80, 80, {margin_v_active + 75}, 1",
+            f"Style: Title, Arial, 30, &H00FFFFFF, &H00000000, &H00000000, &H80000000, -1, 0, 0, 0, 100, 100, 2, 0, 1, 3, 2, 8, 60, 60, 45, 1",
+            f"Style: BreakNotice, Arial, 44, {break_color}, &H00000000, &H00000000, &H90000000, -1, 1, 0, 0, 100, 100, 2, 0, 1, 4, 3, 2, 80, 80, {margin_v_active}, 1",
+            f"Style: BreathCue, Arial, 32, &H00A8FFB2, &H00000000, &H00000000, &H90000000, -1, 0, 0, 0, 100, 100, 2, 0, 1, 3, 2, 2, 80, 80, {margin_v_active + 70}, 1",
             f"Style: Active, Arial, {font_size_active}, {primary_color}, &H00FFFFFF, &H00000000, &H90000000, -1, 0, 0, 0, 100, 100, 1, 0, 1, 5, 4, 2, 80, 80, {margin_v_active}, 1",
             f"Style: Upcoming, Arial, {font_size_upcoming}, {upcoming_color}, &H00000000, &H00000000, &H80000000, 0, 0, 0, 0, 100, 100, 1, 0, 1, 3, 2, 2, 80, 80, {margin_v_upcoming}, 1",
             "",
@@ -1859,8 +1860,7 @@ async def generate_karaoke_video_endpoint(req: KaraokeVideoRequest):
 
             st = to_ass_time(seg.start)
             
-            # Calculate smooth on-screen lingering time so uzatmalar / lines never abruptly vanish
-            # and respect es (musical pause / silence) between lines
+            # Calculate smooth on-screen lingering time so lines transition seamlessly
             if idx + 1 < len(segments_to_use):
                 next_seg = segments_to_use[idx + 1]
                 gap = next_seg.start - seg.end
@@ -1869,22 +1869,26 @@ async def generate_karaoke_video_endpoint(req: KaraokeVideoRequest):
                 elif gap <= 2.5:
                     display_end = max(seg.end, next_seg.start - 0.4)
                 else: # Long gap (es / musical break)
-                    display_end = seg.end + 2.0
+                    display_end = seg.end + 1.8
             else:
-                display_end = seg.end + 3.0
+                display_end = seg.end + 2.5
             en = to_ass_time(display_end)
             
-            # Show musical break indication if there is a long pause (> 3.0s)
+            # Show musical break indication with upcoming lyric preview
             if idx == 0 and seg.start >= 3.5:
                 intro_st = to_ass_time(1.0)
-                intro_en = to_ass_time(seg.start - 1.2)
-                ass_lines.append(f"Dialogue: 0,{intro_st},{intro_en},BreakNotice,,0,0,0,,♪ (Giriş / Enstrümantal Intro......) ♪")
+                intro_en = to_ass_time(seg.start - 1.0)
+                ass_lines.append(f"Dialogue: 0,{intro_st},{intro_en},BreakNotice,,0,0,0,,♪ (Giriş / Enstrümantal) ♪")
+                # Show first upcoming line during intro so singer gets prepared!
+                ass_lines.append(f"Dialogue: 0,{intro_st},{intro_en},Upcoming,,0,0,0,,{raw_text}")
             elif idx > 0:
                 prev_end = segments_to_use[idx - 1].end
                 if seg.start - prev_end >= 3.0:
-                    solo_st = to_ass_time(prev_end + 1.0)
-                    solo_en = to_ass_time(seg.start - 1.2)
-                    ass_lines.append(f"Dialogue: 0,{solo_st},{solo_en},BreakNotice,,0,0,0,,♪ (Solo...... Ara Nağme) ♪")
+                    solo_st = to_ass_time(prev_end + 0.8)
+                    solo_en = to_ass_time(seg.start - 1.0)
+                    ass_lines.append(f"Dialogue: 0,{solo_st},{solo_en},BreakNotice,,0,0,0,,♪ (Solo / Ara Nağme) ♪")
+                    # Show upcoming line during solo break!
+                    ass_lines.append(f"Dialogue: 0,{solo_st},{solo_en},Upcoming,,0,0,0,,{raw_text}")
 
             # Lead-In Breath & Entry Cue (💨 Nefes Al ● ● ●) 1.2s before vocal begins
             if idx == 0 and seg.start >= 1.5:
@@ -1900,50 +1904,68 @@ async def generate_karaoke_video_endpoint(req: KaraokeVideoRequest):
             seg_dur = max(0.2, round(seg.end - seg.start, 2))
             num_w = len(raw_words)
 
-            # Strictly distribute [seg.start, seg.end] duration across the exact edited words in seg.text
+            # Turkish Syllable-Aware Word-by-Word Duration Calculation
+            vowels = set("aeıioöuüAEIİOÖUÜ")
+            weights = []
+            for w in raw_words:
+                v_cnt = sum(1 for c in w if c in vowels)
+                clean_len = len(re.sub(r'[^\w]', '', w))
+                w_wt = max(1.0, float(v_cnt) if v_cnt > 0 else clean_len * 0.4)
+                if any(p in w for p in [',', '!', '?', ';']):
+                    w_wt += 0.5
+                weights.append(w_wt)
+
+            total_dur_cs = max(20, int(seg_dur * 100))
+            is_slow_sustain = (seg_dur / num_w >= 0.75) or any(raw_words[-1].endswith(p) for p in ['...', '~', '..'])
+            
             w_tags = []
             if num_w == 1:
                 clean_w = re.sub(r'[\.\,\!\?\~\s]+$', '', raw_words[0])
                 num_dots = min(6, max(3, int(seg_dur * 2.0))) if seg_dur >= 1.0 else 0
                 w_disp = f"{clean_w}{'.' * num_dots}" if num_dots > 0 else raw_words[0]
                 w_tags.append(f"{{\\kf{int(seg_dur * 100)}}}{w_disp}")
-            else:
-                word_weights = [max(1, len(w)) for w in raw_words]
-                if seg_dur >= num_w * 0.7:
-                    # Slower tempo / sustain at the end of the line
-                    leading_pool = seg_dur * 0.60
-                    last_w_dur = max(0.3, seg_dur - leading_pool)
-                    lead_weight = sum(word_weights[:-1]) or 1
-                    
-                    for i, w in enumerate(raw_words[:-1]):
-                        w_dur = max(0.15, (word_weights[i] / lead_weight) * leading_pool)
-                        w_cs = int(w_dur * 100)
-                        w_tags.append(f"{{\\kf{w_cs}}}{w} ")
-                    
-                    last_w = raw_words[-1]
-                    clean_w = re.sub(r'[\.\,\!\?\~\s]+$', '', last_w)
-                    num_dots = min(6, max(3, int(last_w_dur * 2.0))) if last_w_dur >= 1.0 else 0
-                    w_disp = f"{clean_w}{'.' * num_dots}" if num_dots > 0 else last_w
-                    w_tags.append(f"{{\\kf{int(last_w_dur * 100)}}}{w_disp}")
+            elif is_slow_sustain:
+                leading_cs_pool = int(total_dur_cs * 0.65)
+                last_w_cs = total_dur_cs - leading_cs_pool
+                lead_weights_sum = sum(weights[:-1]) or 1.0
+
+                for i in range(num_w - 1):
+                    w_cs = max(12, int((weights[i] / lead_weights_sum) * leading_cs_pool))
+                    w_tags.append(f"{{\\kf{w_cs}}}{raw_words[i]} ")
+
+                last_w = raw_words[-1]
+                clean_last = re.sub(r'[\.\,\!\?\~\s]+$', '', last_w)
+                if last_w_cs >= 100:
+                    num_dots = min(6, max(3, int((last_w_cs / 100.0) * 2.0)))
+                    w_disp = f"{clean_last}{'.' * num_dots}"
                 else:
-                    total_weight = sum(word_weights) or 1
-                    for i, w in enumerate(raw_words):
-                        w_dur = max(0.12, (word_weights[i] / total_weight) * seg_dur)
-                        w_cs = int(w_dur * 100)
-                        if i == num_w - 1:
-                            clean_w = re.sub(r'[\.\,\!\?\~\s]+$', '', w)
-                            num_dots = min(6, max(3, int(w_dur * 2.0))) if w_dur >= 1.0 else 0
-                            w_disp = f"{clean_w}{'.' * num_dots}" if num_dots > 0 else w
-                            w_tags.append(f"{{\\kf{w_cs}}}{w_disp}")
+                    w_disp = last_w
+                w_tags.append(f"{{\\kf{max(15, last_w_cs)}}}{w_disp}")
+            else:
+                total_weight = sum(weights) or 1.0
+                allocated_cs = 0
+                for i in range(num_w):
+                    if i == num_w - 1:
+                        w_cs = max(12, total_dur_cs - allocated_cs)
+                        last_w = raw_words[i]
+                        clean_last = re.sub(r'[\.\,\!\?\~\s]+$', '', last_w)
+                        if w_cs >= 120:
+                            num_dots = min(6, max(3, int((w_cs / 100.0) * 2.0)))
+                            w_disp = f"{clean_last}{'.' * num_dots}"
                         else:
-                            w_tags.append(f"{{\\kf{w_cs}}}{w} ")
+                            w_disp = last_w
+                        w_tags.append(f"{{\\kf{w_cs}}}{w_disp}")
+                    else:
+                        w_cs = max(12, int((weights[i] / total_weight) * total_dur_cs))
+                        allocated_cs += w_cs
+                        w_tags.append(f"{{\\kf{w_cs}}}{raw_words[i]} ")
 
             active_karaoke_text = "".join(w_tags).strip()
             
-            # Active line with precise word timing & sustain
+            # Line 1: Active Singing Line (Gold fill with bold stroke)
             ass_lines.append(f"Dialogue: 1,{st},{en},Active,,0,0,0,,{active_karaoke_text}")
             
-            # Upcoming Line Preview below active line (displays in frosted silver, NEVER filled prematurely)
+            # Line 2: Continuous Upcoming Line Preview directly underneath
             if idx + 1 < len(segments_to_use):
                 next_text = segments_to_use[idx + 1].text.strip()
                 if next_text:
