@@ -35,41 +35,39 @@ export const NavigationTabs: React.FC<NavigationTabsProps> = ({
     { id: 'leaderboard' as TabId, name: t('Leaderboard'), icon: Trophy },
   ];
 
-  const [indicatorStyle, setIndicatorStyle] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
+  const [indicatorStyle, setIndicatorStyle] = useState<{ left: number; width: number } | null>(null);
   const tabRefs = useRef<{ [key: string]: HTMLButtonElement | null }>({});
-  const navRef = useRef<HTMLElement | null>(null);
 
   const updateIndicator = () => {
     const activeEl = tabRefs.current[currentTab];
-    const navEl = navRef.current;
-    if (activeEl && navEl) {
-      const activeRect = activeEl.getBoundingClientRect();
-      const navRect = navEl.getBoundingClientRect();
+    if (activeEl) {
       setIndicatorStyle({
-        left: activeRect.left - navRect.left,
-        top: activeRect.top - navRect.top,
-        width: activeRect.width,
-        height: activeRect.height,
+        left: activeEl.offsetLeft,
+        width: activeEl.offsetWidth,
       });
     }
   };
 
   useEffect(() => {
     updateIndicator();
+    // Run after a tick to ensure layout is measured accurately
+    const timer = setTimeout(updateIndicator, 50);
     window.addEventListener('resize', updateIndicator);
-    return () => window.removeEventListener('resize', updateIndicator);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('resize', updateIndicator);
+    };
   }, [currentTab, lang]);
 
   return (
     <nav
-      ref={navRef}
-      className="relative w-full glass-panel p-1.5 rounded-2xl border border-white/[0.08] backdrop-blur-2xl flex items-center justify-between gap-2 shadow-2xl overflow-x-auto custom-scrollbar"
+      className="relative w-full glass-panel p-1.5 rounded-2xl border border-white/[0.08] backdrop-blur-2xl flex items-center justify-between gap-2 shadow-2xl overflow-x-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none]"
     >
       {/* Smooth Magnetic Sliding Indicator Pill */}
       {indicatorStyle && (
         <div
           className={cn(
-            'absolute rounded-xl pointer-events-none transition-all duration-300 ease-[cubic-bezier(0.2,0,0,1)] shadow-lg z-0',
+            'absolute top-1.5 bottom-1.5 rounded-xl pointer-events-none transition-all duration-300 ease-[cubic-bezier(0.2,0,0,1)] shadow-lg z-0',
             accentColor === 'indigo' && 'bg-gradient-to-r from-indigo-600 to-indigo-700 shadow-indigo-500/30 ring-1 ring-indigo-400/50',
             accentColor === 'emerald' && 'bg-gradient-to-r from-emerald-600 to-emerald-700 shadow-emerald-500/30 ring-1 ring-emerald-400/50',
             accentColor === 'rose' && 'bg-gradient-to-r from-rose-600 to-rose-700 shadow-rose-500/30 ring-1 ring-rose-400/50',
@@ -77,9 +75,8 @@ export const NavigationTabs: React.FC<NavigationTabsProps> = ({
             accentColor === 'violet' && 'bg-gradient-to-r from-violet-600 to-violet-700 shadow-violet-500/30 ring-1 ring-violet-400/50'
           )}
           style={{
-            transform: `translate3d(${indicatorStyle.left}px, ${indicatorStyle.top}px, 0)`,
+            left: `${indicatorStyle.left}px`,
             width: `${indicatorStyle.width}px`,
-            height: `${indicatorStyle.height}px`,
           }}
         />
       )}
