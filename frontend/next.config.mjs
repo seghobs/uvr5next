@@ -91,6 +91,14 @@ const nextConfig = {
         source: '/download_whisper',
         destination: 'http://127.0.0.1:8000/download_whisper',
       },
+      {
+        source: '/save_lyrics',
+        destination: 'http://127.0.0.1:8000/save_lyrics',
+      },
+      {
+        source: '/lyrics/:path*',
+        destination: 'http://127.0.0.1:8000/lyrics/:path*',
+      },
     ];
   },
 };
