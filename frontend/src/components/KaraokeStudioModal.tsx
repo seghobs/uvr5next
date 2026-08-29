@@ -544,6 +544,9 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
     setRendering(true);
     setVideoUrl(null);
     try {
+      // Ensure all current edited segments are flushed and saved to SQLite database
+      await saveToDatabase(segments, false);
+
       const res = await api.generateKaraokeVideo({
         inst_file: instStem,
         segments: segments,
