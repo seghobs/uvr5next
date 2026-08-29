@@ -1881,6 +1881,15 @@ async def generate_karaoke_video_endpoint(req: KaraokeVideoRequest):
         elif segments_to_use and len(segments_to_use) > 0:
             save_lyrics_db(req.inst_file, "tr", [s.dict() for s in segments_to_use], is_edited=True)
 
+        # Intro preview: if song starts after 1.5s, show line 0 at y_upcoming from 0.0s until seg[0].start
+        if segments_to_use and segments_to_use[0].start >= 1.5:
+            first_seg = segments_to_use[0]
+            first_text = first_seg.text.strip()
+            if first_text:
+                intro_st = "0:00:00.00"
+                intro_en = to_ass_time(first_seg.start)
+                ass_lines.append(f"Dialogue: 0,{intro_st},{intro_en},Upcoming,,0,0,0,,{{\\pos({x_center}, {y_upcoming})}}{first_text}")
+
         for idx, seg in enumerate(segments_to_use):
             raw_text = seg.text.strip()
             if not raw_text:
@@ -1888,26 +1897,13 @@ async def generate_karaoke_video_endpoint(req: KaraokeVideoRequest):
 
             st = to_ass_time(seg.start)
             
-            # Calculate smooth on-screen lingering time so lines transition seamlessly
+            # Active line display end: stays on screen until next segment begins (or max seg.end + 0.35s)
             if idx + 1 < len(segments_to_use):
                 next_seg = segments_to_use[idx + 1]
-                gap = next_seg.start - seg.end
-                if gap <= 0.6:
-                    display_end = max(seg.end, next_seg.start - 0.15)
-                elif gap <= 2.5:
-                    display_end = max(seg.end, next_seg.start - 0.4)
-                else: # Long gap (es / musical break)
-                    display_end = seg.end + 1.8
+                act_end_sec = min(next_seg.start, max(seg.end, seg.end + 0.35))
             else:
-                display_end = seg.end + 2.5
-            en = to_ass_time(display_end)
-            
-            # If this is the first segment and there is an intro, display line 0 as upcoming ahead of time
-            if idx == 0 and seg.start >= 2.5:
-                intro_st = to_ass_time(max(0.5, seg.start - 3.5))
-                intro_en = to_ass_time(seg.start)
-                upcoming_anim = f"{{\\pos({x_center}, {y_upcoming})\\fad(300, 150)}}"
-                ass_lines.append(f"Dialogue: 0,{intro_st},{intro_en},Upcoming,,0,0,0,,{upcoming_anim}{raw_text}")
+                act_end_sec = seg.end + 2.0
+            en = to_ass_time(act_end_sec)
 
             raw_words = raw_text.split()
             seg_dur = max(0.2, round(seg.end - seg.start, 2))
@@ -1955,20 +1951,26 @@ async def generate_karaoke_video_endpoint(req: KaraokeVideoRequest):
 
             active_karaoke_text = "".join(w_tags).strip()
             
-            # Line 1: Active Singing Line (Glides upward at 100% full solid opacity; fades out only at the end)
-            if idx == 0:
-                active_anim = f"{{\\pos({x_center}, {y_active})\\fad(0, 300)}}"
+            # Line 1: Active Singing Line
+            # Glides upward from y_upcoming to y_active at 100% full opacity with ZERO opacity loss;
+            # Only the finishing line fades out at the end with \fad(0, 200).
+            if idx == 0 and seg.start < 1.5:
+                active_anim = f"{{\\pos({x_center}, {y_active})\\fad(0, 200)}}"
             else:
-                active_anim = f"{{\\move({x_center}, {y_upcoming}, {x_center}, {y_active}, 0, 300)\\fad(0, 300)}}"
+                active_anim = f"{{\\move({x_center}, {y_upcoming}, {x_center}, {y_active}, 0, 250)\\fad(0, 200)}}"
 
             ass_lines.append(f"Dialogue: 1,{st},{en},Active,,0,0,0,,{active_anim}{active_karaoke_text}")
             
-            # Line 2: Upcoming Line Preview directly underneath (100% solid full opacity, always clearly readable)
+            # Line 2: Upcoming Line Preview directly underneath
+            # Extends continuously from current seg.start up to EXACTLY next_seg.start (zero gap / zero disappearance!)
             if idx + 1 < len(segments_to_use):
-                next_text = segments_to_use[idx + 1].text.strip()
+                next_seg = segments_to_use[idx + 1]
+                next_text = next_seg.text.strip()
                 if next_text:
+                    up_st = st
+                    up_en = to_ass_time(next_seg.start)
                     upcoming_anim = f"{{\\pos({x_center}, {y_upcoming})}}"
-                    ass_lines.append(f"Dialogue: 0,{st},{en},Upcoming,,0,0,0,,{upcoming_anim}{next_text}")
+                    ass_lines.append(f"Dialogue: 0,{up_st},{up_en},Upcoming,,0,0,0,,{upcoming_anim}{next_text}")
 
         timestamp_id = int(time.time())
         ass_filename = f"karaoke_sub_{timestamp_id}.ass"
