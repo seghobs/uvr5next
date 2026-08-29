@@ -1784,28 +1784,28 @@ async def generate_karaoke_video_endpoint(req: KaraokeVideoRequest):
         is_vertical = req.aspect_ratio == "9:16"
         res_x, res_y = (1080, 1920) if is_vertical else (1920, 1080)
         
-        # Color palette per theme
+        # Color palette per theme (100% Solid Full-Opacity Colors)
         if req.theme == "gold":
             primary_color = "&H0000D7FF"     # Glowing Gold BGR (Active Karaoke Fill)
-            upcoming_color = "&H70C0C0C0"    # Soft Frosted Silver
+            upcoming_color = "&H00D8D8D8"    # 100% Solid Crisp Silver-White
             break_color = "&H0000D7FF"
             wave_color = "#f59e0b|#fbbf24|#d97706"
             bg_color = "0x070A12"
         elif req.theme == "cyberpunk":
             primary_color = "&H00D946EF"     # Glowing Neon Magenta (Active Karaoke Fill)
-            upcoming_color = "&H70C0C0C0"
+            upcoming_color = "&H00D8D8D8"
             break_color = "&H00D946EF"
             wave_color = "#ec4899|#c084fc|#8b5cf6"
             bg_color = "0x090514"
         elif req.theme == "emerald":
             primary_color = "&H0034D399"     # Emerald Green (Active Karaoke Fill)
-            upcoming_color = "&H70C0C0C0"
+            upcoming_color = "&H00D8D8D8"
             break_color = "&H0034D399"
             wave_color = "#10b981|#34d399|#059669"
             bg_color = "0x040D0A"
         else: # neon
             primary_color = "&H00FFFF00"     # Cyan Blue (Active Karaoke Fill)
-            upcoming_color = "&H70C0C0C0"
+            upcoming_color = "&H00D8D8D8"
             break_color = "&H00FFFF00"
             wave_color = "#06b6d4|#38bdf8|#3b82f6"
             bg_color = "0x060914"
@@ -1955,19 +1955,19 @@ async def generate_karaoke_video_endpoint(req: KaraokeVideoRequest):
 
             active_karaoke_text = "".join(w_tags).strip()
             
-            # Line 1: Active Singing Line (Animates upward from upcoming position + Smooth opacity fade-out)
+            # Line 1: Active Singing Line (Glides upward at 100% full solid opacity; fades out only at the end)
             if idx == 0:
-                active_anim = f"{{\\pos({x_center}, {y_active})\\fad(250, 300)}}"
+                active_anim = f"{{\\pos({x_center}, {y_active})\\fad(0, 300)}}"
             else:
-                active_anim = f"{{\\move({x_center}, {y_upcoming}, {x_center}, {y_active}, 0, 350)\\fad(120, 300)}}"
+                active_anim = f"{{\\move({x_center}, {y_upcoming}, {x_center}, {y_active}, 0, 300)\\fad(0, 300)}}"
 
             ass_lines.append(f"Dialogue: 1,{st},{en},Active,,0,0,0,,{active_anim}{active_karaoke_text}")
             
-            # Line 2: Continuous Upcoming Line Preview directly underneath with smooth fade
+            # Line 2: Upcoming Line Preview directly underneath (100% solid full opacity, always clearly readable)
             if idx + 1 < len(segments_to_use):
                 next_text = segments_to_use[idx + 1].text.strip()
                 if next_text:
-                    upcoming_anim = f"{{\\pos({x_center}, {y_upcoming})\\fad(300, 150)}}"
+                    upcoming_anim = f"{{\\pos({x_center}, {y_upcoming})}}"
                     ass_lines.append(f"Dialogue: 0,{st},{en},Upcoming,,0,0,0,,{upcoming_anim}{next_text}")
 
         timestamp_id = int(time.time())
