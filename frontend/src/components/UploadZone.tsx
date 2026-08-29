@@ -426,15 +426,34 @@ export const UploadZone: React.FC<UploadZoneProps> = ({
                 className="p-3 rounded-2xl hover:bg-white/[0.08] cursor-pointer flex items-center justify-between gap-4 transition-all text-left group border border-transparent hover:border-white/10"
               >
                 <div className="flex items-center gap-3.5 min-w-0 flex-1">
-                  <div className="p-2.5 rounded-xl bg-red-500/10 text-red-400 group-hover:scale-110 group-hover:bg-red-500/20 transition-all shrink-0">
-                    <Youtube className="w-4 h-4" />
-                  </div>
+                  {res.thumbnail ? (
+                    <div className="relative w-14 h-9 sm:w-16 sm:h-10 rounded-xl overflow-hidden bg-slate-800 shrink-0 border border-white/10 group-hover:border-indigo-500/50 shadow-md">
+                      <img
+                        src={res.thumbnail}
+                        alt={res.title}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                        loading="lazy"
+                        onError={(e) => {
+                          e.currentTarget.style.display = 'none';
+                          const fb = e.currentTarget.parentElement?.querySelector('.yt-fallback') as HTMLElement;
+                          if (fb) fb.style.display = 'flex';
+                        }}
+                      />
+                      <div className="yt-fallback hidden absolute inset-0 items-center justify-center bg-red-500/10 text-red-400">
+                        <Youtube className="w-4 h-4" />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-2.5 rounded-xl bg-red-500/10 text-red-400 group-hover:scale-110 group-hover:bg-red-500/20 transition-all shrink-0">
+                      <Youtube className="w-4 h-4" />
+                    </div>
+                  )}
                   <div className="min-w-0 flex-1">
                     <div className="text-xs font-bold text-slate-200 truncate group-hover:text-white">
                       {res.title}
                     </div>
                     {res.channel && (
-                      <div className="text-[10px] text-slate-400 truncate mt-0.5">
+                      <div className="text-[10px] text-slate-400 truncate mt-0.5 font-medium">
                         {res.channel}
                       </div>
                     )}

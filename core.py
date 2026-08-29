@@ -383,12 +383,19 @@ def search_youtube(query, max_results=5):
             results = []
             if 'entries' in info:
                 for entry in info['entries']:
+                    entry_id = entry.get('id')
+                    thumbnails = entry.get('thumbnails', [])
+                    thumb_url = thumbnails[-1].get('url') if thumbnails else None
+                    if not thumb_url and entry_id:
+                        thumb_url = f"https://i.ytimg.com/vi/{entry_id}/hqdefault.jpg"
+                    
                     results.append({
-                        'id': entry.get('id'),
+                        'id': entry_id,
                         'title': entry.get('title'),
-                        'url': f"https://www.youtube.com/watch?v={entry.get('id')}",
+                        'url': f"https://www.youtube.com/watch?v={entry_id}" if entry_id else entry.get('url'),
                         'duration': entry.get('duration'),
-                        'thumbnail': f"https://i.ytimg.com/vi/{entry.get('id')}/hqdefault.jpg"
+                        'thumbnail': thumb_url or f"https://i.ytimg.com/vi/{entry_id}/hqdefault.jpg",
+                        'channel': entry.get('uploader') or entry.get('channel') or entry.get('artist')
                     })
             return results
     except Exception as e:
