@@ -16,6 +16,10 @@ import {
   Volume2,
   SlidersHorizontal,
   ChevronUp,
+  Crown,
+  Zap,
+  Music2,
+  Mic2,
 } from 'lucide-react';
 import {
   TabId,
@@ -314,14 +318,15 @@ export const ModelConfiguration: React.FC<ModelConfigurationProps> = ({
       </div>
 
       {/* Quick Ensemble Presets Deck */}
-      <div className="space-y-2.5">
+      <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <label className="text-[11px] font-bold text-slate-300 uppercase tracking-widest flex items-center gap-1.5">
+          <label className="text-[11px] font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5 font-outfit">
             <Sparkles className="w-3.5 h-3.5 text-amber-400" />
             <span>Hazır Akıllı Stüdyo Presetleri</span>
           </label>
-          <span className="text-[9px] text-amber-400 font-mono font-bold bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20">
-            AUTO-TUNE
+          <span className="text-[9px] text-amber-400 font-mono font-bold bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20 flex items-center gap-1">
+            <Zap className="w-2.5 h-2.5 fill-amber-400 text-amber-400" />
+            <span>1-TIKLA AYARLA</span>
           </span>
         </div>
 
@@ -329,29 +334,36 @@ export const ModelConfiguration: React.FC<ModelConfigurationProps> = ({
         <button
           type="button"
           onClick={() => applyPreset('master_studio')}
-          className="w-full p-3.5 rounded-2xl bg-gradient-to-r from-amber-950/60 via-indigo-950/70 to-slate-900 border border-amber-500/40 hover:border-amber-400 text-left transition-all active:scale-[0.98] shadow-lg shadow-amber-500/10 group flex items-center justify-between gap-3 relative overflow-hidden"
+          className="w-full p-3.5 rounded-2xl bg-gradient-to-r from-amber-500/10 via-slate-900/90 to-indigo-950/40 border border-amber-500/30 hover:border-amber-400 text-left transition-all active:scale-[0.99] shadow-lg shadow-amber-500/5 group relative overflow-hidden cursor-pointer"
         >
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-slate-950 font-black text-lg shadow-md shadow-amber-500/30 shrink-0 group-hover:scale-105 transition-transform">
-              👑
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-black font-outfit text-white tracking-tight group-hover:text-amber-300 transition-colors">
-                  Master Ultra-HD Studio Gold
-                </span>
-                <span className="text-[9px] font-bold text-amber-400 bg-amber-400/10 px-1.5 py-0.2 rounded border border-amber-400/30">
-                  4X AI
-                </span>
+          {/* Subtle Ambient Light */}
+          <div className="absolute -right-8 -top-8 w-28 h-28 bg-amber-500/10 rounded-full blur-2xl pointer-events-none group-hover:bg-amber-500/20 transition-colors" />
+
+          <div className="relative z-10 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-400/20 to-amber-600/30 border border-amber-400/30 flex items-center justify-center text-amber-300 shadow-md shadow-amber-500/20 shrink-0 group-hover:scale-105 group-hover:border-amber-300 transition-all">
+                <Crown className="w-5 h-5 text-amber-400 fill-amber-400/20" />
               </div>
-              <p className="text-[10px] text-slate-300 line-clamp-1 mt-0.5">
-                Kusursuz stüdyo vokali + Sıfır sızıntılı saf enstrümantal (Roformer 1297 + MDX23C HQ + DeBleed + VR)
-              </p>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-black font-outfit text-white tracking-tight group-hover:text-amber-300 transition-colors truncate">
+                    Master Ultra-HD Studio Gold
+                  </span>
+                  <span className="text-[9px] font-mono font-black text-amber-300 bg-amber-400/15 px-1.5 py-0.5 rounded border border-amber-400/30 shrink-0">
+                    4X AI
+                  </span>
+                </div>
+                <p className="text-[10px] text-slate-400 mt-0.5 truncate group-hover:text-slate-300 transition-colors">
+                  Kristal Vokal & Saf Enstrümantal • Sıfır Sızıntı
+                </p>
+              </div>
+            </div>
+
+            <div className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/15 border border-amber-500/30 group-hover:bg-amber-500 group-hover:text-slate-950 text-amber-300 text-[11px] font-bold transition-all shadow-sm">
+              <Zap className="w-3 h-3 fill-current" />
+              <span>Uygula</span>
             </div>
           </div>
-          <span className="text-[10px] font-bold text-amber-400 px-2.5 py-1 rounded-xl bg-amber-500/10 border border-amber-500/20 shrink-0 group-hover:bg-amber-500 group-hover:text-slate-950 transition-colors">
-            Uygula
-          </span>
         </button>
 
         {/* 3 Specialized Mini Presets Grid */}
@@ -359,40 +371,52 @@ export const ModelConfiguration: React.FC<ModelConfigurationProps> = ({
           <button
             type="button"
             onClick={() => applyPreset('strings')}
-            className="p-2.5 rounded-2xl bg-slate-900/80 hover:bg-slate-800 border border-white/10 hover:border-indigo-500/40 text-left transition-all active:scale-95 group shadow-md"
+            className="p-3 rounded-2xl bg-slate-900/80 hover:bg-slate-800/90 border border-white/10 hover:border-indigo-500/50 text-left transition-all active:scale-95 group shadow-md flex flex-col justify-between cursor-pointer"
             title="Keman, bağlama ve ud gibi yaylı/telli enstrümanları vokale sızdırmaz"
           >
-            <span className="text-base block mb-0.5 group-hover:scale-110 transition-transform">🎻</span>
-            <span className="text-[11px] font-bold text-white block leading-tight truncate">
-              Keman / Bağlama
-            </span>
-            <span className="text-[9px] text-slate-400 block truncate">Sızıntı Önleyici</span>
+            <div className="w-7 h-7 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 mb-2 group-hover:scale-110 group-hover:border-indigo-400 transition-all">
+              <Music2 className="w-3.5 h-3.5" />
+            </div>
+            <div>
+              <span className="text-[11px] font-bold text-white block leading-tight truncate group-hover:text-indigo-300 transition-colors">
+                Keman & Telli
+              </span>
+              <span className="text-[9px] text-slate-400 block truncate mt-0.5">Sızıntı Önleyici</span>
+            </div>
           </button>
 
           <button
             type="button"
             onClick={() => applyPreset('vocal')}
-            className="p-2.5 rounded-2xl bg-slate-900/80 hover:bg-slate-800 border border-white/10 hover:border-emerald-500/40 text-left transition-all active:scale-95 group shadow-md"
+            className="p-3 rounded-2xl bg-slate-900/80 hover:bg-slate-800/90 border border-white/10 hover:border-emerald-500/50 text-left transition-all active:scale-95 group shadow-md flex flex-col justify-between cursor-pointer"
             title="Vokali stüdyo kayıt kabinindeymiş gibi tamamen saf çıkarır"
           >
-            <span className="text-base block mb-0.5 group-hover:scale-110 transition-transform">🎤</span>
-            <span className="text-[11px] font-bold text-white block leading-tight truncate">
-              Kristal Vokal
-            </span>
-            <span className="text-[9px] text-slate-400 block truncate">Sıfır Orkestra</span>
+            <div className="w-7 h-7 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 mb-2 group-hover:scale-110 group-hover:border-emerald-400 transition-all">
+              <Mic2 className="w-3.5 h-3.5" />
+            </div>
+            <div>
+              <span className="text-[11px] font-bold text-white block leading-tight truncate group-hover:text-emerald-300 transition-colors">
+                Kristal Vokal
+              </span>
+              <span className="text-[9px] text-slate-400 block truncate mt-0.5">Sıfır Orkestra</span>
+            </div>
           </button>
 
           <button
             type="button"
             onClick={() => applyPreset('piano')}
-            className="p-2.5 rounded-2xl bg-slate-900/80 hover:bg-slate-800 border border-white/10 hover:border-amber-500/40 text-left transition-all active:scale-95 group shadow-md"
+            className="p-3 rounded-2xl bg-slate-900/80 hover:bg-slate-800/90 border border-white/10 hover:border-amber-500/50 text-left transition-all active:scale-95 group shadow-md flex flex-col justify-between cursor-pointer"
             title="Piyano ve akustik soloları net ayırır"
           >
-            <span className="text-base block mb-0.5 group-hover:scale-110 transition-transform">🎹</span>
-            <span className="text-[11px] font-bold text-white block leading-tight truncate">
-              Piyano / Akustik
-            </span>
-            <span className="text-[9px] text-slate-400 block truncate">Solo Koruma</span>
+            <div className="w-7 h-7 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 mb-2 group-hover:scale-110 group-hover:border-amber-400 transition-all">
+              <Volume2 className="w-3.5 h-3.5" />
+            </div>
+            <div>
+              <span className="text-[11px] font-bold text-white block leading-tight truncate group-hover:text-amber-300 transition-colors">
+                Piyano & Solo
+              </span>
+              <span className="text-[9px] text-slate-400 block truncate mt-0.5">Solo Koruma</span>
+            </div>
           </button>
         </div>
       </div>
