@@ -1532,7 +1532,7 @@ async def save_lyrics_endpoint(req: SaveLyricsRequest):
 @app.api_route("/clear_karaoke_data", methods=["POST", "GET", "DELETE", "OPTIONS"])
 async def clear_karaoke_data_endpoint():
     """
-    Clears all saved/edited karaoke lyrics from SQLite database and wipes all generated karaoke videos and subtitle files.
+    Clears all saved/edited karaoke lyrics from SQLite database and wipes all generated files in outputs/, ytdl/, and uploads/ directories.
     """
     try:
         deleted_db_rows = 0
@@ -1547,18 +1547,29 @@ async def clear_karaoke_data_endpoint():
             cursor.execute("VACUUM;")
 
         deleted_files = 0
-        patterns = ["Karaoke_*.mp4", "karaoke_sub_*.ass", "*.lrc", "*.srt"]
-        for pat in patterns:
-            for f in OUTPUT_DIR.glob(pat):
-                try:
-                    f.unlink(missing_ok=True)
-                    deleted_files += 1
-                except Exception as e:
-                    print(f"Error deleting file {f}: {e}")
+        target_dirs = [OUTPUT_DIR, YTL_DIR, UPLOAD_DIR, Path("ytdlp").resolve(), Path("ytdl_downloads").resolve()]
+        
+        for d in target_dirs:
+            if d.exists() and d.is_dir():
+                for item in d.iterdir():
+                    try:
+                        if item.is_file():
+                            item.unlink(missing_ok=True)
+                            deleted_files += 1
+                        elif item.is_dir():
+                            shutil.rmtree(item, ignore_errors=True)
+                            deleted_files += 1
+                    except Exception as e:
+                        print(f"Error cleaning {item}: {e}")
+
+        # Ensure required directories still exist
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
+        os.makedirs(YTL_DIR, exist_ok=True)
+        os.makedirs(UPLOAD_DIR, exist_ok=True)
 
         return {
             "status": "success",
-            "message": "Tüm karaoke çalışmaları başarıyla temizlendi.",
+            "message": "Outputs, Yt-Dlp indirmeleri, yüklemeler ve karaoke veritabanı başarıyla temizlendi.",
             "deleted_lyrics_count": deleted_db_rows,
             "deleted_files_count": deleted_files
         }

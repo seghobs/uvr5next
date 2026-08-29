@@ -161,13 +161,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <div className="flex items-center gap-2">
                 <Trash2 className="w-4 h-4 text-rose-400" />
                 <span className="text-xs font-bold text-white">
-                  {lang === 'tr' ? 'Tüm Karaoke Çalışmalarını Temizle' : 'Clear All Karaoke Works'}
+                  {lang === 'tr' ? 'Tüm Çalışmaları & İndirmeleri Temizle' : 'Clear All Outputs & Downloads'}
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 leading-relaxed">
                 {lang === 'tr'
-                  ? 'Veritabanındaki tüm kayıtlı sözleri, zamanlamaları ve üretilen karaoke videolarını sıfırlar.'
-                  : 'Wipes all cached lyrics, timing syncs, and generated karaoke videos from SQLite database.'}
+                  ? 'outputs/, ytdl/ ve uploads/ klasörlerindeki tüm dosyaları (ayrıştırılmış sesler, karaoke videoları, indirmeler) ve veritabanı kayıtlarını tamamen siler.'
+                  : 'Wipes all files in outputs/, ytdl/, and uploads/ (stems, karaoke videos, downloads) and SQLite database records.'}
               </p>
             </div>
 
