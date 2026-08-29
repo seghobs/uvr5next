@@ -1902,31 +1902,12 @@ async def generate_karaoke_video_endpoint(req: KaraokeVideoRequest):
                 display_end = seg.end + 2.5
             en = to_ass_time(display_end)
             
-            # Show musical break indication with upcoming lyric preview
-            if idx == 0 and seg.start >= 3.5:
-                intro_st = to_ass_time(1.0)
-                intro_en = to_ass_time(seg.start - 1.0)
-                ass_lines.append(f"Dialogue: 0,{intro_st},{intro_en},BreakNotice,,0,0,0,,♪ (Giriş / Enstrümantal) ♪")
-                # Show first upcoming line during intro so singer gets prepared!
-                ass_lines.append(f"Dialogue: 0,{intro_st},{intro_en},Upcoming,,0,0,0,,{raw_text}")
-            elif idx > 0:
-                prev_end = segments_to_use[idx - 1].end
-                if seg.start - prev_end >= 3.0:
-                    solo_st = to_ass_time(prev_end + 0.8)
-                    solo_en = to_ass_time(seg.start - 1.0)
-                    ass_lines.append(f"Dialogue: 0,{solo_st},{solo_en},BreakNotice,,0,0,0,,♪ (Solo / Ara Nağme) ♪")
-                    # Show upcoming line during solo break!
-                    ass_lines.append(f"Dialogue: 0,{solo_st},{solo_en},Upcoming,,0,0,0,,{raw_text}")
-
-            # Lead-In Breath & Entry Cue (💨 Nefes Al ● ● ●) 1.2s before vocal begins
-            if idx == 0 and seg.start >= 1.5:
-                breath_st = to_ass_time(max(0.0, seg.start - 1.2))
-                ass_lines.append(f"Dialogue: 0,{breath_st},{st},BreathCue,,0,0,0,,💨 (Nefes Al) ● ● ●")
-            elif idx > 0:
-                prev_end = segments_to_use[idx - 1].end
-                if seg.start - prev_end >= 1.5:
-                    breath_st = to_ass_time(max(prev_end + 0.2, seg.start - 1.2))
-                    ass_lines.append(f"Dialogue: 0,{breath_st},{st},BreathCue,,0,0,0,,💨 (Nefes Al) ● ● ●")
+            # If this is the first segment and there is an intro, display line 0 as upcoming ahead of time
+            if idx == 0 and seg.start >= 2.5:
+                intro_st = to_ass_time(max(0.5, seg.start - 3.5))
+                intro_en = to_ass_time(seg.start)
+                upcoming_anim = f"{{\\pos({x_center}, {y_upcoming})\\fad(300, 150)}}"
+                ass_lines.append(f"Dialogue: 0,{intro_st},{intro_en},Upcoming,,0,0,0,,{upcoming_anim}{raw_text}")
 
             raw_words = raw_text.split()
             seg_dur = max(0.2, round(seg.end - seg.start, 2))
@@ -1944,47 +1925,31 @@ async def generate_karaoke_video_endpoint(req: KaraokeVideoRequest):
                 weights.append(w_wt)
 
             total_dur_cs = max(20, int(seg_dur * 100))
-            is_slow_sustain = (seg_dur / num_w >= 0.75) or any(raw_words[-1].endswith(p) for p in ['...', '~', '..'])
+            is_slow_sustain = (seg_dur / num_w >= 0.70)
             
             w_tags = []
             if num_w == 1:
-                clean_w = re.sub(r'[\.\,\!\?\~\s]+$', '', raw_words[0])
-                num_dots = min(6, max(3, int(seg_dur * 2.0))) if seg_dur >= 1.0 else 0
-                w_disp = f"{clean_w}{'.' * num_dots}" if num_dots > 0 else raw_words[0]
-                w_tags.append(f"{{\\kf{int(seg_dur * 100)}}}{w_disp}")
+                w_tags.append(f"{{\\kf{total_dur_cs}}}{raw_words[0]}")
             elif is_slow_sustain:
-                leading_cs_pool = int(total_dur_cs * 0.65)
+                # Leading words sing in standard cadence, last word fills slowly across the remaining sustain
+                leading_cs_pool = int(total_dur_cs * 0.60)
                 last_w_cs = total_dur_cs - leading_cs_pool
                 lead_weights_sum = sum(weights[:-1]) or 1.0
 
                 for i in range(num_w - 1):
-                    w_cs = max(12, int((weights[i] / lead_weights_sum) * leading_cs_pool))
+                    w_cs = max(10, int((weights[i] / lead_weights_sum) * leading_cs_pool))
                     w_tags.append(f"{{\\kf{w_cs}}}{raw_words[i]} ")
 
-                last_w = raw_words[-1]
-                clean_last = re.sub(r'[\.\,\!\?\~\s]+$', '', last_w)
-                if last_w_cs >= 100:
-                    num_dots = min(6, max(3, int((last_w_cs / 100.0) * 2.0)))
-                    w_disp = f"{clean_last}{'.' * num_dots}"
-                else:
-                    w_disp = last_w
-                w_tags.append(f"{{\\kf{max(15, last_w_cs)}}}{w_disp}")
+                w_tags.append(f"{{\\kf{max(15, last_w_cs)}}}{raw_words[-1]}")
             else:
                 total_weight = sum(weights) or 1.0
                 allocated_cs = 0
                 for i in range(num_w):
                     if i == num_w - 1:
-                        w_cs = max(12, total_dur_cs - allocated_cs)
-                        last_w = raw_words[i]
-                        clean_last = re.sub(r'[\.\,\!\?\~\s]+$', '', last_w)
-                        if w_cs >= 120:
-                            num_dots = min(6, max(3, int((w_cs / 100.0) * 2.0)))
-                            w_disp = f"{clean_last}{'.' * num_dots}"
-                        else:
-                            w_disp = last_w
-                        w_tags.append(f"{{\\kf{w_cs}}}{w_disp}")
+                        w_cs = max(10, total_dur_cs - allocated_cs)
+                        w_tags.append(f"{{\\kf{w_cs}}}{raw_words[i]}")
                     else:
-                        w_cs = max(12, int((weights[i] / total_weight) * total_dur_cs))
+                        w_cs = max(10, int((weights[i] / total_weight) * total_dur_cs))
                         allocated_cs += w_cs
                         w_tags.append(f"{{\\kf{w_cs}}}{raw_words[i]} ")
 
