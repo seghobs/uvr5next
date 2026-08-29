@@ -1548,11 +1548,12 @@ async def transcribe_lyrics_endpoint(req: LyricsRequest):
                 except:
                     pass
 
-        # Candidate hallucination filter list
+        # Candidate hallucination and non-vocal audio artifact filter list
         hallucination_phrases = [
             'altyazı', 'altyazi', 'izlediğiniz için', 'izlediginiz icin', 'teşekkürler', 'tesekkurler',
             'teşekkür ederim', 'tesekkur ederim', 'abone', 'youtube', 'translated by', 'copyright',
-            'thank you for watching', 'subtitles by'
+            'thank you for watching', 'subtitles by', 'öğrenç', 'ogrenc', 'vokal.', 'müzik', 'muzik',
+            'alkış', 'alkis', 'enstrümantal'
         ]
 
         def _clean_segment_text(txt: str) -> str:
