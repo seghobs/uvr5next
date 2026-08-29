@@ -1529,6 +1529,42 @@ async def save_lyrics_endpoint(req: SaveLyricsRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/clear_karaoke_data")
+async def clear_karaoke_data_endpoint():
+    """
+    Clears all saved/edited karaoke lyrics from SQLite database and wipes all generated karaoke videos and subtitle files.
+    """
+    try:
+        deleted_db_rows = 0
+        with sqlite3.connect(str(FAVORITES_DB_PATH)) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM lyrics;")
+            row = cursor.fetchone()
+            if row:
+                deleted_db_rows = row[0]
+            cursor.execute("DELETE FROM lyrics;")
+            conn.commit()
+            cursor.execute("VACUUM;")
+
+        deleted_files = 0
+        patterns = ["Karaoke_*.mp4", "karaoke_sub_*.ass", "*.lrc", "*.srt"]
+        for pat in patterns:
+            for f in OUTPUT_DIR.glob(pat):
+                try:
+                    f.unlink(missing_ok=True)
+                    deleted_files += 1
+                except Exception as e:
+                    print(f"Error deleting file {f}: {e}")
+
+        return {
+            "status": "success",
+            "message": "Tüm karaoke çalışmaları başarıyla temizlendi.",
+            "deleted_lyrics_count": deleted_db_rows,
+            "deleted_files_count": deleted_files
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/transcribe_lyrics")
 async def transcribe_lyrics_endpoint(req: LyricsRequest):
     try:

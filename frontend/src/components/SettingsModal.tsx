@@ -1,10 +1,11 @@
 'use client';
 
-import React from 'react';
-import { X, Cpu, Sliders, CheckCircle2 } from 'lucide-react';
+import React, { useState } from 'react';
+import { X, Cpu, Sliders, CheckCircle2, Trash2, AlertTriangle, Loader2 } from 'lucide-react';
 import { Language, AccentColor, SeparationParams } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { getTranslation } from '@/lib/translations';
+import { api } from '@/lib/api';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -30,6 +31,31 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onNotify,
 }) => {
   const t = (key: string) => getTranslation(lang, key);
+  const [isClearingKaraoke, setIsClearingKaraoke] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
+
+  const handleClearKaraoke = async () => {
+    if (!confirmClear) {
+      setConfirmClear(true);
+      return;
+    }
+    setIsClearingKaraoke(true);
+    try {
+      const res = await api.clearKaraokeData();
+      onNotify(
+        'success',
+        lang === 'tr' ? 'Karaoke Veritabanı Temizlendi' : 'Karaoke Database Cleared',
+        lang === 'tr'
+          ? `${res.deleted_lyrics_count} şarkı sözü kaydı ve ${res.deleted_files_count} dosya başarıyla silindi.`
+          : `Wiped ${res.deleted_lyrics_count} lyrics rows and ${res.deleted_files_count} output files.`
+      );
+      setConfirmClear(false);
+    } catch (err: any) {
+      onNotify('error', 'Hata', err.message || 'Karaoke verileri temizlenemedi.');
+    } finally {
+      setIsClearingKaraoke(false);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -124,6 +150,66 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
         </div>
 
+        {/* Karaoke Studio Storage & Reset */}
+        <div className="space-y-3 pt-3 border-t border-slate-800">
+          <label className="text-xs font-bold text-slate-400 uppercase tracking-widest block">
+            {lang === 'tr' ? 'Karaoke & Veritabanı Yönetimi' : 'Karaoke & Database Storage'}
+          </label>
+
+          <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <Trash2 className="w-4 h-4 text-rose-400" />
+                <span className="text-xs font-bold text-white">
+                  {lang === 'tr' ? 'Tüm Karaoke Çalışmalarını Temizle' : 'Clear All Karaoke Works'}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400 leading-relaxed">
+                {lang === 'tr'
+                  ? 'Veritabanındaki tüm kayıtlı sözleri, zamanlamaları ve üretilen karaoke videolarını sıfırlar.'
+                  : 'Wipes all cached lyrics, timing syncs, and generated karaoke videos from SQLite database.'}
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              {confirmClear ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmClear(false)}
+                    disabled={isClearingKaraoke}
+                    className="px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-slate-300 text-xs font-bold transition-all cursor-pointer"
+                  >
+                    {lang === 'tr' ? 'Vazgeç' : 'Cancel'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleClearKaraoke}
+                    disabled={isClearingKaraoke}
+                    className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-lg shadow-rose-600/30 active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer"
+                  >
+                    {isClearingKaraoke ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <AlertTriangle className="w-3.5 h-3.5" />
+                    )}
+                    <span>{lang === 'tr' ? 'Evet, Hepsini Sil' : 'Yes, Delete All'}</span>
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleClearKaraoke}
+                  className="px-4 py-2 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 text-xs font-bold active:scale-95 transition-all flex items-center gap-2 cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>{lang === 'tr' ? 'Tümünü Temizle' : 'Wipe Everything'}</span>
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+
         {/* Save & Close Button */}
         <button
           onClick={() => {
@@ -131,7 +217,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             onNotify('success', 'Settings Saved');
           }}
           className={cn(
-            'w-full py-3.5 rounded-2xl font-bold text-xs text-white shadow-xl transition-transform active:scale-95 flex items-center justify-center gap-2',
+            'w-full py-3.5 rounded-2xl font-bold text-xs text-white shadow-xl transition-transform active:scale-95 flex items-center justify-center gap-2 cursor-pointer',
             accentColor === 'indigo' && 'bg-indigo-600 hover:bg-indigo-500 shadow-indigo-500/25',
             accentColor === 'emerald' && 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-500/25',
             accentColor === 'rose' && 'bg-rose-600 hover:bg-rose-500 shadow-rose-500/25',

@@ -336,6 +336,23 @@ export const api = {
     return res.json();
   },
 
+  async clearKaraokeData(): Promise<{
+    status: string;
+    message: string;
+    deleted_lyrics_count: number;
+    deleted_files_count: number;
+  }> {
+    const res = await safeFetch('/clear_karaoke_data', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || err.message || 'Karaoke verileri temizlenemedi');
+    }
+    return res.json();
+  },
+
   async getWhisperStatus(): Promise<{
     model_name: string;
     key: string;
