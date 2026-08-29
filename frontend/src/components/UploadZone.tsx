@@ -8,6 +8,7 @@ import {
   Music,
   X,
   Play,
+  Pause,
   Loader2,
   CheckCircle2,
   Youtube,
@@ -15,6 +16,8 @@ import {
   FileAudio,
   Sparkles,
   Download,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
 import { Language, AccentColor, SearchResult } from '@/lib/types';
 import { cn, formatBytes, formatTime } from '@/lib/utils';
@@ -63,14 +66,173 @@ export const UploadZone: React.FC<UploadZoneProps> = ({
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
 
+  // YouTube Audio Preview Player State
+  const [playingVideoId, setPlayingVideoId] = useState<string | null>(null);
+  const [playingResult, setPlayingResult] = useState<SearchResult | null>(null);
+  const [isPlayingPreview, setIsPlayingPreview] = useState(false);
+  const [isBufferingPreview, setIsBufferingPreview] = useState(false);
+  const [previewCurrentTime, setPreviewCurrentTime] = useState(0);
+  const [previewDuration, setPreviewDuration] = useState(0);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastQueryRef = useRef<string>('');
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const ytPlayerRef = useRef<any>(null);
+  const previewTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const extractVideoId = (item: SearchResult): string | null => {
+    if (item.id) return item.id;
+    if (!item.url) return null;
+    const match = item.url.match(/(?:youtu\.be\/|v=|\/embed\/|\/v\/|watch\?v=)([\w-]{11})/);
+    return match ? match[1] : null;
+  };
 
   const isUrl = (text: string) => {
     const trimmed = text.trim();
     return /^(https?:\/\/|www\.|youtube\.com|youtu\.be|soundcloud\.com|spotify\.com)/i.test(trimmed);
+  };
+
+  // Initialize YouTube Iframe API
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const initPlayer = () => {
+      const win = window as any;
+      if (win.YT && win.YT.Player && !ytPlayerRef.current) {
+        try {
+          ytPlayerRef.current = new win.YT.Player('yt-hidden-preview-player', {
+            height: '0',
+            width: '0',
+            playerVars: {
+              autoplay: 0,
+              controls: 0,
+              disablekb: 1,
+              fs: 0,
+              modestbranding: 1,
+              playsinline: 1,
+              rel: 0,
+            },
+            events: {
+              onStateChange: (event: any) => {
+                // 1 = PLAYING, 2 = PAUSED, 3 = BUFFERING, 0 = ENDED
+                if (event.data === 1) {
+                  setIsPlayingPreview(true);
+                  setIsBufferingPreview(false);
+                  const dur = ytPlayerRef.current?.getDuration?.() || 0;
+                  if (dur > 0) setPreviewDuration(dur);
+                } else if (event.data === 2) {
+                  setIsPlayingPreview(false);
+                  setIsBufferingPreview(false);
+                } else if (event.data === 3) {
+                  setIsBufferingPreview(true);
+                } else if (event.data === 0) {
+                  setIsPlayingPreview(false);
+                  setIsBufferingPreview(false);
+                  setPreviewCurrentTime(0);
+                }
+              },
+              onError: (err: any) => {
+                console.warn('YouTube Preview Player Error:', err);
+                setIsBufferingPreview(false);
+                setIsPlayingPreview(false);
+              },
+            },
+          });
+        } catch (e) {
+          console.warn('Error initializing YouTube Player:', e);
+        }
+      }
+    };
+
+    const win = window as any;
+    if (!win.YT) {
+      const tag = document.createElement('script');
+      tag.src = 'https://www.youtube.com/iframe_api';
+      const firstScriptTag = document.getElementsByTagName('script')[0];
+      firstScriptTag?.parentNode?.insertBefore(tag, firstScriptTag);
+      win.onYouTubeIframeAPIReady = () => {
+        initPlayer();
+      };
+    } else if (win.YT && win.YT.Player) {
+      initPlayer();
+    }
+
+    return () => {
+      if (previewTimerRef.current) clearInterval(previewTimerRef.current);
+    };
+  }, []);
+
+  // Update preview playback timeline timer
+  useEffect(() => {
+    if (isPlayingPreview) {
+      previewTimerRef.current = setInterval(() => {
+        if (ytPlayerRef.current?.getCurrentTime) {
+          const cur = ytPlayerRef.current.getCurrentTime() || 0;
+          setPreviewCurrentTime(cur);
+          const dur = ytPlayerRef.current.getDuration?.() || 0;
+          if (dur > 0) setPreviewDuration(dur);
+        }
+      }, 250);
+    } else {
+      if (previewTimerRef.current) clearInterval(previewTimerRef.current);
+    }
+    return () => {
+      if (previewTimerRef.current) clearInterval(previewTimerRef.current);
+    };
+  }, [isPlayingPreview]);
+
+  const togglePlayPreview = (res: SearchResult, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const vidId = extractVideoId(res);
+    if (!vidId) return;
+
+    if (playingVideoId === vidId) {
+      if (isPlayingPreview) {
+        ytPlayerRef.current?.pauseVideo?.();
+      } else {
+        ytPlayerRef.current?.playVideo?.();
+      }
+    } else {
+      setPlayingVideoId(vidId);
+      setPlayingResult(res);
+      setPreviewCurrentTime(0);
+      setIsBufferingPreview(true);
+      setIsPlayingPreview(true);
+
+      const doLoad = () => {
+        if (ytPlayerRef.current?.loadVideoById) {
+          ytPlayerRef.current.loadVideoById({ videoId: vidId });
+          ytPlayerRef.current.playVideo?.();
+        }
+      };
+
+      if (ytPlayerRef.current?.loadVideoById) {
+        doLoad();
+      } else {
+        setTimeout(doLoad, 600);
+      }
+    }
+  };
+
+  const handleSeekPreview = (fraction: number, e: React.MouseEvent<HTMLDivElement>) => {
+    e.stopPropagation();
+    if (!ytPlayerRef.current || previewDuration <= 0) return;
+    const targetSeconds = fraction * previewDuration;
+    ytPlayerRef.current.seekTo?.(targetSeconds, true);
+    setPreviewCurrentTime(targetSeconds);
+  };
+
+  const stopPreview = (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    try {
+      ytPlayerRef.current?.stopVideo?.();
+    } catch {}
+    setPlayingVideoId(null);
+    setPlayingResult(null);
+    setIsPlayingPreview(false);
+    setIsBufferingPreview(false);
+    setPreviewCurrentTime(0);
   };
 
   // Close dropdown on click outside
@@ -408,6 +570,9 @@ export const UploadZone: React.FC<UploadZoneProps> = ({
           )}
         </div>
 
+        {/* Hidden YouTube Preview Player Container */}
+        <div id="yt-hidden-preview-player" className="absolute -left-[9999px] -top-[9999px] w-1 h-1 opacity-0 pointer-events-none" />
+
         {/* Full-Width Search Dropdown Modal */}
         {showSearchDropdown && searchResults.length > 0 && !isUrl(inputVal) && (
           <div
@@ -417,62 +582,183 @@ export const UploadZone: React.FC<UploadZoneProps> = ({
                 loadMoreResults();
               }
             }}
-            className="absolute top-full left-0 right-0 mt-2 bg-slate-900/95 border border-white/15 backdrop-blur-2xl rounded-3xl shadow-2xl p-2.5 z-50 max-h-80 overflow-y-auto space-y-1.5 custom-scrollbar animate-fade-in"
+            className="absolute top-full left-0 right-0 mt-2 bg-slate-900/95 border border-white/15 backdrop-blur-2xl rounded-3xl shadow-2xl p-2.5 z-50 max-h-96 overflow-y-auto space-y-1.5 custom-scrollbar animate-fade-in"
           >
-            {searchResults.map((res, i) => (
-              <div
-                key={i}
-                onClick={() => selectSearchResult(res)}
-                className="p-3 rounded-2xl hover:bg-white/[0.08] cursor-pointer flex items-center justify-between gap-4 transition-all text-left group border border-transparent hover:border-white/10"
-              >
-                <div className="flex items-center gap-3.5 min-w-0 flex-1">
-                  {res.thumbnail ? (
-                    <div className="relative w-14 h-9 sm:w-16 sm:h-10 rounded-xl overflow-hidden bg-slate-800 shrink-0 border border-white/10 group-hover:border-indigo-500/50 shadow-md">
-                      <img
-                        src={res.thumbnail}
-                        alt={res.title}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                        loading="lazy"
-                        onError={(e) => {
-                          e.currentTarget.style.display = 'none';
-                          const fb = e.currentTarget.parentElement?.querySelector('.yt-fallback') as HTMLElement;
-                          if (fb) fb.style.display = 'flex';
-                        }}
-                      />
-                      <div className="yt-fallback hidden absolute inset-0 items-center justify-center bg-red-500/10 text-red-400">
-                        <Youtube className="w-4 h-4" />
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="p-2.5 rounded-xl bg-red-500/10 text-red-400 group-hover:scale-110 group-hover:bg-red-500/20 transition-all shrink-0">
-                      <Youtube className="w-4 h-4" />
-                    </div>
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <div className="text-xs font-bold text-slate-200 truncate group-hover:text-white">
-                      {res.title}
-                    </div>
-                    {res.channel && (
-                      <div className="text-[10px] text-slate-400 truncate mt-0.5 font-medium">
-                        {res.channel}
-                      </div>
-                    )}
-                  </div>
-                </div>
+            {searchResults.map((res, i) => {
+              const vidId = extractVideoId(res);
+              const isThisPlaying = Boolean(vidId && playingVideoId === vidId);
 
-                <div className="flex items-center gap-2.5 shrink-0">
-                  {res.duration && (
-                    <span className="text-[10px] text-slate-400 font-mono bg-black/50 border border-white/5 px-2.5 py-1 rounded-lg">
-                      {typeof res.duration === 'number' ? formatTime(res.duration) : res.duration}
-                    </span>
+              return (
+                <div
+                  key={i}
+                  onClick={() => selectSearchResult(res)}
+                  className={cn(
+                    "p-3 rounded-2xl cursor-pointer transition-all text-left group border",
+                    isThisPlaying
+                      ? "bg-slate-800/90 border-emerald-500/40 shadow-lg shadow-emerald-500/10 ring-1 ring-emerald-500/20"
+                      : "hover:bg-white/[0.08] border-transparent hover:border-white/10"
                   )}
-                  <span className="text-[11px] font-bold text-indigo-400 bg-indigo-500/10 group-hover:bg-indigo-500/20 border border-indigo-500/20 px-3 py-1 rounded-xl opacity-0 group-hover:opacity-100 transition-all flex items-center gap-1">
-                    <Download className="w-3 h-3" />
-                    <span>İndir</span>
-                  </span>
+                >
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                      {/* Thumbnail with Play/Pause Interactive Overlay */}
+                      <div
+                        onClick={(e) => togglePlayPreview(res, e)}
+                        className={cn(
+                          "relative w-16 h-10 sm:w-20 sm:h-12 rounded-xl overflow-hidden bg-slate-800 shrink-0 border transition-all shadow-md group/thumb cursor-pointer",
+                          isThisPlaying
+                            ? "border-emerald-400 ring-2 ring-emerald-400/40 shadow-emerald-500/30"
+                            : "border-white/10 group-hover:border-indigo-500/50"
+                        )}
+                        title={isThisPlaying && isPlayingPreview ? "Duraklat" : "Önizle ve Dinle"}
+                      >
+                        {res.thumbnail ? (
+                          <img
+                            src={res.thumbnail}
+                            alt={res.title}
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                            loading="lazy"
+                            onError={(e) => {
+                              e.currentTarget.style.display = 'none';
+                              const fb = e.currentTarget.parentElement?.querySelector('.yt-fallback') as HTMLElement;
+                              if (fb) fb.style.display = 'flex';
+                            }}
+                          />
+                        ) : null}
+                        
+                        <div className={cn(
+                          "yt-fallback absolute inset-0 items-center justify-center bg-red-500/10 text-red-400",
+                          res.thumbnail ? "hidden" : "flex"
+                        )}>
+                          <Youtube className="w-5 h-5" />
+                        </div>
+
+                        {/* Play/Pause Hover / Active Overlay */}
+                        <div className={cn(
+                          "absolute inset-0 flex items-center justify-center transition-all",
+                          isThisPlaying
+                            ? "bg-black/60 backdrop-blur-[1px] opacity-100"
+                            : "bg-black/50 backdrop-blur-[1px] opacity-0 group-hover/thumb:opacity-100"
+                        )}>
+                          {isThisPlaying ? (
+                            isBufferingPreview ? (
+                              <Loader2 className="w-5 h-5 text-emerald-400 animate-spin" />
+                            ) : isPlayingPreview ? (
+                              <div className="w-7 h-7 rounded-full bg-emerald-500 text-black flex items-center justify-center shadow-lg transform active:scale-90 transition-transform">
+                                <Pause className="w-3.5 h-3.5 fill-current" />
+                              </div>
+                            ) : (
+                              <div className="w-7 h-7 rounded-full bg-emerald-500 text-black flex items-center justify-center shadow-lg transform active:scale-90 transition-transform">
+                                <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+                              </div>
+                            )
+                          ) : (
+                            <div className="w-7 h-7 rounded-full bg-emerald-500/90 hover:bg-emerald-400 text-black flex items-center justify-center shadow-lg transform active:scale-90 transition-transform">
+                              <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Song Title & Channel */}
+                      <div className="min-w-0 flex-1">
+                        <div className={cn(
+                          "text-xs font-bold truncate transition-colors",
+                          isThisPlaying ? "text-emerald-300" : "text-slate-200 group-hover:text-white"
+                        )}>
+                          {res.title}
+                        </div>
+                        {res.channel && (
+                          <div className="text-[10px] text-slate-400 truncate mt-0.5 font-medium">
+                            {res.channel}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Right Duration & Download Badge */}
+                    <div className="flex items-center gap-2.5 shrink-0">
+                      {res.duration && (
+                        <span className="text-[10px] text-slate-400 font-mono bg-black/50 border border-white/5 px-2.5 py-1 rounded-lg">
+                          ⏱️ {typeof res.duration === 'number' ? formatTime(res.duration) : res.duration}
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          selectSearchResult(res);
+                        }}
+                        className="text-[11px] font-bold text-indigo-300 hover:text-white bg-indigo-500/15 hover:bg-indigo-500/30 border border-indigo-500/30 px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 shadow-sm active:scale-95"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>İndir</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Active Song Live Audio Progress Bar */}
+                  {isThisPlaying && (
+                    <div
+                      className="mt-3 pt-2.5 border-t border-white/10 flex items-center gap-3 animate-fade-in"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <button
+                        type="button"
+                        onClick={(e) => togglePlayPreview(res, e)}
+                        className="p-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 transition-colors shrink-0 active:scale-95"
+                        title={isPlayingPreview ? "Duraklat" : "Oynat"}
+                      >
+                        {isBufferingPreview ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : isPlayingPreview ? (
+                          <Pause className="w-4 h-4 fill-current" />
+                        ) : (
+                          <Play className="w-4 h-4 fill-current ml-0.5" />
+                        )}
+                      </button>
+
+                      <span className="text-[10px] font-mono font-bold text-emerald-400 shrink-0 min-w-[35px]">
+                        {formatTime(previewCurrentTime)}
+                      </span>
+
+                      {/* Interactive Scrubber Track */}
+                      <div
+                        onClick={(e) => {
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          const frac = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                          handleSeekPreview(frac, e);
+                        }}
+                        className="relative flex-1 h-2 bg-slate-950 rounded-full overflow-hidden cursor-pointer group/bar hover:h-3 transition-all border border-white/5"
+                        title="İleri / Geri Sar"
+                      >
+                        <div
+                          className="absolute top-0 bottom-0 left-0 bg-gradient-to-r from-emerald-500 via-teal-400 to-indigo-500 rounded-full transition-[width] duration-150 relative"
+                          style={{
+                            width: `${Math.min(100, Math.max(0, (previewCurrentTime / (previewDuration || 1)) * 100))}%`,
+                          }}
+                        >
+                          <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-white shadow-md opacity-0 group-hover/bar:opacity-100 transition-opacity" />
+                        </div>
+                      </div>
+
+                      <span className="text-[10px] font-mono text-slate-400 shrink-0 min-w-[35px]">
+                        {formatTime(previewDuration)}
+                      </span>
+
+                      <button
+                        type="button"
+                        onClick={(e) => stopPreview(e)}
+                        className="p-1.5 rounded-xl text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors shrink-0"
+                        title="Önizlemeyi Durdur"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
 
             {/* Loading More Indicator at Bottom */}
             {isLoadingMore && (
