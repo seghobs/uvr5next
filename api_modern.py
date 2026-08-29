@@ -1529,7 +1529,7 @@ async def save_lyrics_endpoint(req: SaveLyricsRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/clear_karaoke_data")
+@app.api_route("/clear_karaoke_data", methods=["POST", "GET", "DELETE", "OPTIONS"])
 async def clear_karaoke_data_endpoint():
     """
     Clears all saved/edited karaoke lyrics from SQLite database and wipes all generated karaoke videos and subtitle files.
