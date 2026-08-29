@@ -722,24 +722,34 @@ export const UploadZone: React.FC<UploadZoneProps> = ({
                         {formatTime(previewCurrentTime)}
                       </span>
 
-                      {/* Interactive Scrubber Track */}
+                      {/* Interactive Scrubber Track & Glowing Thumb */}
                       <div
                         onClick={(e) => {
                           const rect = e.currentTarget.getBoundingClientRect();
                           const frac = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
                           handleSeekPreview(frac, e);
                         }}
-                        className="relative flex-1 h-2 bg-slate-950 rounded-full overflow-hidden cursor-pointer group/bar hover:h-3 transition-all border border-white/5"
+                        className="relative flex-1 py-3 cursor-pointer group/bar flex items-center select-none"
                         title="İleri / Geri Sar"
                       >
-                        <div
-                          className="absolute top-0 bottom-0 left-0 bg-gradient-to-r from-emerald-500 via-teal-400 to-indigo-500 rounded-full transition-[width] duration-150 relative"
-                          style={{
-                            width: `${Math.min(100, Math.max(0, (previewCurrentTime / (previewDuration || 1)) * 100))}%`,
-                          }}
-                        >
-                          <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-white shadow-md opacity-0 group-hover/bar:opacity-100 transition-opacity" />
+                        {/* Background Base Track */}
+                        <div className="w-full h-1.5 sm:h-2 bg-slate-950/90 rounded-full overflow-hidden border border-white/10 group-hover/bar:h-2 sm:group-hover/bar:h-2.5 transition-all">
+                          {/* Progress Fill */}
+                          <div
+                            className="h-full bg-gradient-to-r from-emerald-400 via-teal-400 to-indigo-500 rounded-full transition-[width] duration-100"
+                            style={{
+                              width: `${Math.min(100, Math.max(0, (previewCurrentTime / (previewDuration || 1)) * 100))}%`,
+                            }}
+                          />
                         </div>
+
+                        {/* Draggable Glowing Handle Circle (Thumb) */}
+                        <div
+                          className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3.5 h-3.5 sm:w-4 sm:h-4 bg-white rounded-full shadow-lg shadow-emerald-500/50 border-2 border-emerald-400 pointer-events-none transform group-hover/bar:scale-125 transition-transform"
+                          style={{
+                            left: `${Math.min(100, Math.max(0, (previewCurrentTime / (previewDuration || 1)) * 100))}%`,
+                          }}
+                        />
                       </div>
 
                       <span className="text-[10px] font-mono text-slate-400 shrink-0 min-w-[35px]">
