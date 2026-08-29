@@ -6,6 +6,10 @@
   --foreground-rgb: 248, 250, 252;
 }
 
+html {
+  scrollbar-gutter: stable;
+}
+
 body {
   color: rgb(var(--foreground-rgb));
   background-color: #030712;

@@ -48,7 +48,7 @@ export const NavigationTabs: React.FC<NavigationTabsProps> = ({
               key={tab.id}
               onClick={() => onSelectTab(tab.id)}
               className={cn(
-                'relative flex items-center gap-2.5 px-4 py-2.5 rounded-2xl text-xs font-bold font-outfit transition-all duration-300 active:scale-95 group overflow-hidden',
+                'relative flex items-center gap-2 px-3.5 py-2.5 rounded-2xl text-xs font-bold font-outfit transition-all duration-200 active:scale-95 group overflow-hidden cursor-pointer whitespace-nowrap',
                 isActive
                   ? cn(
                       'text-white shadow-xl',
@@ -61,10 +61,17 @@ export const NavigationTabs: React.FC<NavigationTabsProps> = ({
                   : 'text-slate-400 hover:text-white hover:bg-white/[0.05] border border-transparent'
               )}
             >
-              <Icon className={cn('w-4 h-4 transition-transform group-hover:scale-110', isActive ? 'text-white' : 'text-slate-400')} />
+              <Icon className={cn('w-4 h-4 shrink-0 transition-transform group-hover:scale-110', isActive ? 'text-white' : 'text-slate-400')} />
               <span>{tab.name}</span>
-              {tab.badge && !isActive && (
-                <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-white/[0.06] text-slate-400 font-mono font-semibold hidden md:inline">
+              {tab.badge && (
+                <span
+                  className={cn(
+                    'text-[9px] px-1.5 py-0.5 rounded-md font-mono font-bold tracking-tight hidden md:inline transition-colors',
+                    isActive
+                      ? 'bg-white/20 text-white'
+                      : 'bg-white/[0.06] text-slate-400 group-hover:text-slate-200'
+                  )}
+                >
                   {tab.badge}
                 </span>
               )}
