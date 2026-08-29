@@ -56,9 +56,12 @@ export interface LibraryItem {
 }
 
 export interface SearchResult {
+  id?: string;
   title: string;
   url: string;
-  duration?: string;
+  duration?: string | number;
+  thumbnail?: string;
+  channel?: string;
 }
 
 export interface TaskStatus {

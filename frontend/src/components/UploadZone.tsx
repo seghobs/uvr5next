@@ -14,6 +14,7 @@ import {
   Radio,
   FileAudio,
   Sparkles,
+  Download,
 } from 'lucide-react';
 import { Language, AccentColor, SearchResult } from '@/lib/types';
 import { cn, formatBytes, formatTime } from '@/lib/utils';
@@ -53,10 +54,8 @@ export const UploadZone: React.FC<UploadZoneProps> = ({
 }) => {
   const t = (key: string) => getTranslation(lang, key);
   const [isDragOver, setIsDragOver] = useState(false);
-  const [urlInput, setUrlInput] = useState('');
+  const [inputVal, setInputVal] = useState('');
   const [isDownloadingUrl, setIsDownloadingUrl] = useState(false);
-
-  const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
@@ -68,6 +67,11 @@ export const UploadZone: React.FC<UploadZoneProps> = ({
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastQueryRef = useRef<string>('');
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const isUrl = (text: string) => {
+    const trimmed = text.trim();
+    return /^(https?:\/\/|www\.|youtube\.com|youtu\.be|soundcloud\.com|spotify\.com)/i.test(trimmed);
+  };
 
   // Close dropdown on click outside
   useEffect(() => {
@@ -114,11 +118,13 @@ export const UploadZone: React.FC<UploadZoneProps> = ({
     handleFiles(e.dataTransfer.files);
   };
 
-  const handleUrlDownload = async () => {
-    if (!urlInput.trim()) return;
+  const handleUrlDownload = async (targetUrl?: string) => {
+    const urlToDownload = (targetUrl || inputVal).trim();
+    if (!urlToDownload) return;
     setIsDownloadingUrl(true);
+    setShowSearchDropdown(false);
     try {
-      const res = await api.downloadFromUrl(urlInput.trim());
+      const res = await api.downloadFromUrl(urlToDownload);
       onAddToQueue([
         {
           id: `${Date.now()}`,
@@ -126,7 +132,8 @@ export const UploadZone: React.FC<UploadZoneProps> = ({
           path: res.path,
         },
       ]);
-      setUrlInput('');
+      setInputVal('');
+      setSearchResults([]);
       onNotify('success', 'Download Complete', res.title || res.filename);
     } catch (e: any) {
       onNotify('error', 'Download Failed', e.message || 'Could not fetch audio from URL');
@@ -137,7 +144,7 @@ export const UploadZone: React.FC<UploadZoneProps> = ({
 
   const executeSearch = async (queryText: string, limit = 15) => {
     const trimmed = queryText.trim();
-    if (!trimmed || trimmed.length < 2) {
+    if (!trimmed || trimmed.length < 2 || isUrl(trimmed)) {
       setSearchResults([]);
       setShowSearchDropdown(false);
       setIsSearching(false);
@@ -170,7 +177,7 @@ export const UploadZone: React.FC<UploadZoneProps> = ({
   };
 
   const loadMoreResults = async () => {
-    if (isLoadingMore || !hasMore || isSearching || !searchQuery.trim()) return;
+    if (isLoadingMore || !hasMore || isSearching || !inputVal.trim() || isUrl(inputVal)) return;
     const nextLimit = Math.min(45, searchLimit + 12);
     if (nextLimit === searchLimit) {
       setHasMore(false);
@@ -179,8 +186,8 @@ export const UploadZone: React.FC<UploadZoneProps> = ({
 
     setIsLoadingMore(true);
     try {
-      const res = await api.search(searchQuery.trim(), nextLimit);
-      if (lastQueryRef.current === searchQuery.trim()) {
+      const res = await api.search(inputVal.trim(), nextLimit);
+      if (lastQueryRef.current === inputVal.trim()) {
         const list = Array.isArray(res) ? res : [];
         setSearchResults(list);
         setSearchLimit(nextLimit);
@@ -193,31 +200,66 @@ export const UploadZone: React.FC<UploadZoneProps> = ({
     }
   };
 
-  const handleSearchInput = (value: string) => {
-    setSearchQuery(value);
+  const handleInputChange = (value: string) => {
+    setInputVal(value);
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
 
-    if (!value.trim() || value.trim().length < 2) {
+    const trimmed = value.trim();
+    if (isUrl(trimmed)) {
+      setShowSearchDropdown(false);
+      setSearchResults([]);
+      setIsSearching(false);
+      return;
+    }
+
+    if (!trimmed || trimmed.length < 2) {
       setSearchResults([]);
       setShowSearchDropdown(false);
       setIsSearching(false);
       return;
     }
 
-    // Debounce for 550ms so fast typing doesn't trigger intermediate single-word queries
+    // Debounce for 450ms
     searchTimeoutRef.current = setTimeout(() => {
-      executeSearch(value, 15);
-    }, 550);
+      executeSearch(trimmed, 15);
+    }, 450);
   };
 
   const handleImmediateSearch = () => {
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
-    executeSearch(searchQuery, 15);
+    const trimmed = inputVal.trim();
+    if (isUrl(trimmed)) {
+      handleUrlDownload(trimmed);
+    } else {
+      executeSearch(trimmed, 15);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      const trimmed = inputVal.trim();
+      if (!trimmed) return;
+      if (isUrl(trimmed)) {
+        handleUrlDownload(trimmed);
+      } else {
+        handleImmediateSearch();
+      }
+    } else if (e.key === 'Escape') {
+      setShowSearchDropdown(false);
+    }
+  };
+
+  const handleClearInput = () => {
+    setInputVal('');
+    setSearchResults([]);
+    setShowSearchDropdown(false);
+    setIsSearching(false);
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
   };
 
   const selectSearchResult = async (result: SearchResult) => {
     setShowSearchDropdown(false);
-    setUrlInput(result.url);
+    setInputVal(result.title);
     setIsDownloadingUrl(true);
     try {
       const res = await api.downloadFromUrl(result.url);
@@ -228,8 +270,8 @@ export const UploadZone: React.FC<UploadZoneProps> = ({
           path: res.path,
         },
       ]);
-      setUrlInput('');
-      setSearchQuery('');
+      setInputVal('');
+      setSearchResults([]);
       onNotify('success', 'Download Complete', result.title);
     } catch (e: any) {
       onNotify('error', 'Download Failed', e.message || 'Could not fetch YouTube video');
@@ -292,107 +334,136 @@ export const UploadZone: React.FC<UploadZoneProps> = ({
         </p>
       </div>
 
-      {/* Online Stream Links & YouTube Search Deck */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Paste Link */}
-        <div className="glass-panel p-2 rounded-2xl flex items-center gap-2 border border-white/10 shadow-lg">
-          <div className="p-2 rounded-xl bg-white/[0.05] text-slate-400">
-            <LinkIcon className="w-4 h-4" />
+      {/* Unified Full-Width Online Stream Search & URL Bar */}
+      <div className="relative w-full" ref={dropdownRef}>
+        <div className="glass-panel p-2 sm:p-2.5 rounded-2xl flex items-center gap-2.5 sm:gap-3 border border-white/10 shadow-xl focus-within:border-indigo-500/50 focus-within:ring-2 focus-within:ring-indigo-500/20 transition-all">
+          <div className={cn(
+            "p-2.5 rounded-xl transition-colors shrink-0 flex items-center justify-center",
+            isUrl(inputVal)
+              ? "bg-indigo-500/15 text-indigo-400"
+              : "bg-red-500/15 text-red-400"
+          )}>
+            {isUrl(inputVal) ? <LinkIcon className="w-4 h-4" /> : <Youtube className="w-4 h-4" />}
           </div>
+
           <input
             type="text"
-            value={urlInput}
-            onChange={(e) => setUrlInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleUrlDownload()}
-            placeholder={t('Paste link (YouTube, SoundCloud...)')}
-            className="w-full bg-transparent text-xs sm:text-sm text-white placeholder-slate-500 outline-none px-1"
+            value={inputVal}
+            onChange={(e) => handleInputChange(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onFocus={() => {
+              if (searchResults.length > 0 && !isUrl(inputVal)) {
+                setShowSearchDropdown(true);
+              }
+            }}
+            placeholder={t('Search or paste audio/video link (YouTube, SoundCloud...)')}
+            className="w-full bg-transparent text-xs sm:text-sm text-white placeholder-slate-500 outline-none px-1 font-medium"
           />
-          <button
-            onClick={handleUrlDownload}
-            disabled={isDownloadingUrl || !urlInput.trim()}
-            className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-xs font-bold text-white transition-all duration-200 shrink-0 flex items-center gap-1.5 active:scale-95 shadow-md"
-          >
-            {isDownloadingUrl ? (
-              <>
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                <span>{t('Downloading...')}</span>
-              </>
-            ) : (
-              <span>{t('Download')}</span>
-            )}
-          </button>
-        </div>
 
-        {/* YouTube Instant Search */}
-        <div className="relative" ref={dropdownRef}>
-          <div className="glass-panel p-2 rounded-2xl flex items-center gap-2 border border-white/10 shadow-lg">
-            <div className="p-2 rounded-xl bg-red-500/10 text-red-400">
-              <Youtube className="w-4 h-4" />
-            </div>
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => handleSearchInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleImmediateSearch()}
-              placeholder={t('Search YouTube...')}
-              className="w-full bg-transparent text-xs sm:text-sm text-white placeholder-slate-500 outline-none px-1"
-            />
-            {isSearching ? (
-              <Loader2 className="w-4 h-4 text-indigo-400 animate-spin mr-2 shrink-0" />
-            ) : (
-              <button
-                type="button"
-                onClick={handleImmediateSearch}
-                className="p-1.5 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition-colors mr-1 shrink-0"
-              >
-                <Search className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </div>
-
-          {/* Search Dropdown with Infinite Scrolling */}
-          {showSearchDropdown && searchResults.length > 0 && (
-            <div
-              onScroll={(e) => {
-                const el = e.currentTarget;
-                if (el.scrollHeight - el.scrollTop - el.clientHeight < 30) {
-                  loadMoreResults();
-                }
-              }}
-              className="absolute top-full left-0 right-0 mt-2 bg-slate-900/95 border border-white/15 backdrop-blur-2xl rounded-3xl shadow-2xl p-2 z-50 max-h-72 overflow-y-auto space-y-1 custom-scrollbar"
+          {/* Clear Input Button */}
+          {inputVal && !isDownloadingUrl && (
+            <button
+              type="button"
+              onClick={handleClearInput}
+              className="p-1.5 rounded-lg text-slate-500 hover:text-white hover:bg-white/10 transition-colors shrink-0"
+              title="Temizle"
             >
-              {searchResults.map((res, i) => (
-                <div
-                  key={i}
-                  onClick={() => selectSearchResult(res)}
-                  className="p-3 rounded-2xl hover:bg-white/[0.08] cursor-pointer flex items-center gap-3 transition-colors text-left group"
-                >
-                  <div className="p-2 rounded-xl bg-red-500/10 text-red-400 group-hover:scale-110 transition-transform shrink-0">
-                    <Youtube className="w-4 h-4" />
-                  </div>
-                  <span className="text-xs font-bold text-slate-200 truncate flex-1 group-hover:text-white">
-                    {res.title}
-                  </span>
-                  {res.duration && (
-                    <span className="text-[10px] text-slate-400 font-mono bg-black/40 px-2 py-0.5 rounded-md shrink-0">
-                      {typeof res.duration === 'number'
-                        ? formatTime(res.duration)
-                        : res.duration}
-                    </span>
-                  )}
-                </div>
-              ))}
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
 
-              {/* Loading More Indicator at Bottom */}
-              {isLoadingMore && (
-                <div className="p-3 text-center flex items-center justify-center gap-2 text-indigo-400 text-xs font-semibold">
+          {/* Action Button */}
+          {isUrl(inputVal) ? (
+            <button
+              onClick={() => handleUrlDownload()}
+              disabled={isDownloadingUrl || !inputVal.trim()}
+              className="px-4 sm:px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 disabled:opacity-50 text-xs font-bold text-white transition-all duration-200 shrink-0 flex items-center gap-1.5 active:scale-95 shadow-lg shadow-indigo-500/20"
+            >
+              {isDownloadingUrl ? (
+                <>
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>Daha fazla sonuç yükleniyor...</span>
-                </div>
+                  <span>{t('Downloading...')}</span>
+                </>
+              ) : (
+                <>
+                  <Download className="w-3.5 h-3.5" />
+                  <span>{t('Download')}</span>
+                </>
               )}
-            </div>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={handleImmediateSearch}
+              disabled={isSearching || isDownloadingUrl || !inputVal.trim()}
+              className="px-3.5 sm:px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 disabled:opacity-50 text-xs font-bold text-slate-300 hover:text-white transition-all shrink-0 flex items-center gap-2 border border-white/5 active:scale-95"
+            >
+              {isSearching ? (
+                <Loader2 className="w-3.5 h-3.5 text-indigo-400 animate-spin" />
+              ) : (
+                <Search className="w-3.5 h-3.5" />
+              )}
+              <span className="hidden sm:inline">Ara</span>
+            </button>
           )}
         </div>
+
+        {/* Full-Width Search Dropdown Modal */}
+        {showSearchDropdown && searchResults.length > 0 && !isUrl(inputVal) && (
+          <div
+            onScroll={(e) => {
+              const el = e.currentTarget;
+              if (el.scrollHeight - el.scrollTop - el.clientHeight < 30) {
+                loadMoreResults();
+              }
+            }}
+            className="absolute top-full left-0 right-0 mt-2 bg-slate-900/95 border border-white/15 backdrop-blur-2xl rounded-3xl shadow-2xl p-2.5 z-50 max-h-80 overflow-y-auto space-y-1.5 custom-scrollbar animate-fade-in"
+          >
+            {searchResults.map((res, i) => (
+              <div
+                key={i}
+                onClick={() => selectSearchResult(res)}
+                className="p-3 rounded-2xl hover:bg-white/[0.08] cursor-pointer flex items-center justify-between gap-4 transition-all text-left group border border-transparent hover:border-white/10"
+              >
+                <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                  <div className="p-2.5 rounded-xl bg-red-500/10 text-red-400 group-hover:scale-110 group-hover:bg-red-500/20 transition-all shrink-0">
+                    <Youtube className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-xs font-bold text-slate-200 truncate group-hover:text-white">
+                      {res.title}
+                    </div>
+                    {res.channel && (
+                      <div className="text-[10px] text-slate-400 truncate mt-0.5">
+                        {res.channel}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2.5 shrink-0">
+                  {res.duration && (
+                    <span className="text-[10px] text-slate-400 font-mono bg-black/50 border border-white/5 px-2.5 py-1 rounded-lg">
+                      {typeof res.duration === 'number' ? formatTime(res.duration) : res.duration}
+                    </span>
+                  )}
+                  <span className="text-[11px] font-bold text-indigo-400 bg-indigo-500/10 group-hover:bg-indigo-500/20 border border-indigo-500/20 px-3 py-1 rounded-xl opacity-0 group-hover:opacity-100 transition-all flex items-center gap-1">
+                    <Download className="w-3 h-3" />
+                    <span>İndir</span>
+                  </span>
+                </div>
+              </div>
+            ))}
+
+            {/* Loading More Indicator at Bottom */}
+            {isLoadingMore && (
+              <div className="p-3 text-center flex items-center justify-center gap-2 text-indigo-400 text-xs font-semibold">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>Daha fazla sonuç yükleniyor...</span>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Audio Queue List */}
