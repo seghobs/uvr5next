@@ -26,6 +26,10 @@ import {
   Radio,
   Undo2,
   ArrowRight,
+  FolderUp,
+  FolderDown,
+  ChevronDown,
+  FileCode,
 } from 'lucide-react';
 import { Language, LyricSegment } from '@/lib/types';
 import { getTranslation } from '@/lib/translations';
@@ -65,6 +69,24 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
   const [isSavingDb, setIsSavingDb] = useState(false);
   const [lastSavedTime, setLastSavedTime] = useState<string | null>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Import / Export State
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
+  const importFileInputRef = useRef<HTMLInputElement>(null);
+
+  // Close export dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(event.target as Node)) {
+        setShowExportMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
 
   // Video Customization
   const [aspectRatio, setAspectRatio] = useState<'16:9' | '9:16'>('16:9');
@@ -439,6 +461,182 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
     });
   };
 
+  // Export Lyrics to JSON, LRC or SRT file
+  const handleExport = (format: 'json' | 'lrc' | 'srt') => {
+    if (segments.length === 0) {
+      onNotify('warning', 'Dışa Aktarılacak Söz Yok', 'Lütfen önce en az bir satır söz ekleyin.');
+      return;
+    }
+
+    const baseName = (instStem || vocalStem || 'karaoke_lyrics').replace(/\.[^/.]+$/, '').replace(/_(Instrumental|Vocals|other).*/i, '');
+    let content = '';
+    let mimeType = 'text/plain;charset=utf-8';
+    const fileExt = format;
+
+    if (format === 'json') {
+      content = JSON.stringify(
+        {
+          title: title || 'Karaoke Track',
+          artist: artist || 'UVR5',
+          duration: duration,
+          exported_at: new Date().toISOString(),
+          segments: segments.map((s) => ({
+            start: Number(s.start),
+            end: Number(s.end),
+            text: s.text.trim(),
+          })),
+        },
+        null,
+        2
+      );
+      mimeType = 'application/json;charset=utf-8';
+    } else if (format === 'lrc') {
+      const lines = [
+        `[ti:${title || baseName}]`,
+        `[ar:${artist || 'UVR5 Studio'}]`,
+        `[length:${formatPrecisionTime(duration)}]`,
+      ];
+      segments.forEach((s) => {
+        const startSec = Number(s.start) || 0;
+        const mins = Math.floor(startSec / 60);
+        const secs = (startSec % 60).toFixed(2).padStart(5, '0');
+        lines.push(`[${mins.toString().padStart(2, '0')}:${secs}]${s.text.trim()}`);
+      });
+      content = lines.join('\n');
+    } else if (format === 'srt') {
+      const srtBlocks = segments.map((s, idx) => {
+        const stSec = Number(s.start) || 0;
+        const enSec = Number(s.end) || stSec + 2.0;
+
+        const stH = Math.floor(stSec / 3600);
+        const stM = Math.floor((stSec % 3600) / 60);
+        const stS = Math.floor(stSec % 60);
+        const stMs = Math.floor((stSec - Math.floor(stSec)) * 1000);
+
+        const enH = Math.floor(enSec / 3600);
+        const enM = Math.floor((enSec % 3600) / 60);
+        const enS = Math.floor(enSec % 60);
+        const enMs = Math.floor((enSec - Math.floor(enSec)) * 1000);
+
+        const stStr = `${stH.toString().padStart(2, '0')}:${stM.toString().padStart(2, '0')}:${stS.toString().padStart(2, '0')},${stMs.toString().padStart(3, '0')}`;
+        const enStr = `${enH.toString().padStart(2, '0')}:${enM.toString().padStart(2, '0')}:${enS.toString().padStart(2, '0')},${enMs.toString().padStart(3, '0')}`;
+
+        return `${idx + 1}\n${stStr} --> ${enStr}\n${s.text.trim()}\n`;
+      });
+      content = srtBlocks.join('\n');
+    }
+
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${baseName}_lyrics.${fileExt}`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    onNotify('success', 'Dışa Aktarıldı (Export) 📤', `${segments.length} satır söz ve süre ${format.toUpperCase()} formatında indirildi.`);
+    setShowExportMenu(false);
+  };
+
+  // Import Lyrics from JSON, LRC or SRT file
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const fileName = file.name.toLowerCase();
+      let importedSegments: LyricSegment[] = [];
+
+      if (fileName.endsWith('.json')) {
+        const parsed = JSON.parse(text);
+        const list = Array.isArray(parsed) ? parsed : (parsed.segments || parsed.lyrics || []);
+        importedSegments = list.map((item: any) => ({
+          start: Number(item.start) || 0,
+          end: Number(item.end) || (Number(item.start) || 0) + 2.5,
+          text: String(item.text || item.line || '').trim(),
+        })).filter((s: LyricSegment) => s.text.length > 0);
+      } else if (fileName.endsWith('.lrc')) {
+        const lines = text.split(/\r?\n/);
+        const lrcEntries: { start: number; text: string }[] = [];
+        const timeRegex = /\[(\d{2}):(\d{2})(?:\.(\d{2,3}))?\]/g;
+
+        lines.forEach((line) => {
+          const matches = [...line.matchAll(timeRegex)];
+          const cleanText = line.replace(timeRegex, '').trim();
+          if (cleanText) {
+            matches.forEach((m) => {
+              const mins = parseInt(m[1], 10) || 0;
+              const secs = parseInt(m[2], 10) || 0;
+              const frac = m[3] ? parseFloat(`0.${m[3]}`) : 0;
+              const totalSec = mins * 60 + secs + frac;
+              lrcEntries.push({ start: Number(totalSec.toFixed(2)), text: cleanText });
+            });
+          }
+        });
+
+        lrcEntries.sort((a, b) => a.start - b.start);
+        importedSegments = lrcEntries.map((entry, idx) => {
+          const nextStart = lrcEntries[idx + 1] ? lrcEntries[idx + 1].start : entry.start + 3.0;
+          return {
+            start: entry.start,
+            end: Number(Math.max(entry.start + 0.5, nextStart - 0.2).toFixed(2)),
+            text: entry.text,
+          };
+        });
+      } else if (fileName.endsWith('.srt')) {
+        const blocks = text.split(/\r?\n\r?\n/);
+        blocks.forEach((block) => {
+          const lines = block.trim().split(/\r?\n/);
+          if (lines.length >= 2) {
+            const timeLine = lines.find((l) => l.includes('-->'));
+            if (timeLine) {
+              const [stStr, enStr] = timeLine.split('-->').map((s) => s.trim());
+              const parseSrtTime = (tStr: string) => {
+                const parts = tStr.replace(',', '.').split(':');
+                if (parts.length === 3) {
+                  return parseInt(parts[0], 10) * 3600 + parseInt(parts[1], 10) * 60 + parseFloat(parts[2]);
+                }
+                return 0;
+              };
+              const start = Number(parseSrtTime(stStr).toFixed(2));
+              const end = Number(parseSrtTime(enStr).toFixed(2));
+              const textLines = lines.slice(lines.indexOf(timeLine) + 1).join(' ').trim();
+              if (textLines) {
+                importedSegments.push({ start, end, text: textLines });
+              }
+            }
+          }
+        });
+      } else {
+        const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+        if (lines.length > 0) {
+          const totalDur = duration > 0 ? duration : lines.length * 4.0;
+          const step = totalDur / lines.length;
+          importedSegments = lines.map((l, idx) => ({
+            start: Number((idx * step).toFixed(2)),
+            end: Number(((idx + 1) * step - 0.3).toFixed(2)),
+            text: l,
+          }));
+        }
+      }
+
+      if (importedSegments.length > 0) {
+        setSegments(importedSegments);
+        triggerAutoSave(importedSegments, true);
+        onNotify('success', 'İçe Aktarıldı & Kaydedildi (Import) 📥', `${importedSegments.length} satır söz ve süreler yüklendi ve SQLite veritabanına kalıcı olarak kaydedildi.`);
+      } else {
+        onNotify('warning', 'Dosya Boş', 'Dosyada geçerli şarkı sözü satırı bulunamadı.');
+      }
+    } catch (err: any) {
+      onNotify('error', 'İçe Aktarma Hatası', err.message || 'Dosya okunamadı.');
+    } finally {
+      if (importFileInputRef.current) importFileInputRef.current.value = '';
+    }
+  };
+
   // Playback Controls
   const toggleMasterPlay = () => {
     if (!audioRef.current) return;
@@ -686,6 +884,74 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
               )}
               <span>AI ile Yeniden Çıkar</span>
             </button>
+
+            {/* Hidden File Input for Importing Lyrics */}
+            <input
+              ref={importFileInputRef}
+              type="file"
+              accept=".json,.lrc,.srt,.txt"
+              className="hidden"
+              onChange={handleImportFile}
+            />
+
+            {/* Import Lyrics Button */}
+            <button
+              onClick={() => importFileInputRef.current?.click()}
+              className="px-3 py-1.5 rounded-xl bg-teal-500/10 hover:bg-teal-500/20 text-teal-300 border border-teal-500/30 text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 shadow-sm"
+              title="JSON, LRC veya SRT formatındaki söz ve süreleri içe aktar"
+            >
+              <FolderUp className="w-3.5 h-3.5 text-teal-400" />
+              <span>İçe Aktar</span>
+            </button>
+
+            {/* Export Lyrics Dropdown Menu */}
+            <div className="relative" ref={exportMenuRef}>
+              <button
+                onClick={() => setShowExportMenu(!showExportMenu)}
+                className="px-3 py-1.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 shadow-sm"
+                title="Şarkı sözlerini ve milisaniye sürelerini JSON, LRC veya SRT olarak dışa aktar / yedekle"
+              >
+                <FolderDown className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Dışa Aktar</span>
+                <ChevronDown className="w-3 h-3 opacity-60 ml-0.5" />
+              </button>
+
+              {showExportMenu && (
+                <div className="absolute right-0 top-full mt-2 w-56 bg-slate-900/95 border border-white/15 backdrop-blur-2xl rounded-2xl shadow-2xl p-1.5 z-[100] space-y-1 animate-fade-in text-left">
+                  <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                    Format Seçin (Export)
+                  </div>
+                  <button
+                    onClick={() => handleExport('json')}
+                    className="w-full px-3 py-2 rounded-xl text-xs font-semibold text-slate-200 hover:text-white hover:bg-white/10 flex items-center justify-between transition-colors group"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="px-1.5 py-0.5 rounded-md bg-indigo-500/20 text-indigo-400 font-mono text-[10px] font-bold">JSON</span>
+                      <span>JSON Formatı</span>
+                    </div>
+                    <span className="text-[10px] text-amber-400 font-bold bg-amber-500/10 px-1.5 py-0.5 rounded">Önerilen</span>
+                  </button>
+                  <button
+                    onClick={() => handleExport('lrc')}
+                    className="w-full px-3 py-2 rounded-xl text-xs font-semibold text-slate-200 hover:text-white hover:bg-white/10 flex items-center justify-between transition-colors group"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="px-1.5 py-0.5 rounded-md bg-pink-500/20 text-pink-400 font-mono text-[10px] font-bold">LRC</span>
+                      <span>LRC Karaoke</span>
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => handleExport('srt')}
+                    className="w-full px-3 py-2 rounded-xl text-xs font-semibold text-slate-200 hover:text-white hover:bg-white/10 flex items-center justify-between transition-colors group"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="px-1.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-400 font-mono text-[10px] font-bold">SRT</span>
+                      <span>SRT Altyazı</span>
+                    </div>
+                  </button>
+                </div>
+              )}
+            </div>
 
             <button
               onClick={() => handleAddSegment()}
