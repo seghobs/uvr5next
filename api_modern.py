@@ -1533,9 +1533,11 @@ async def transcribe_lyrics_endpoint(req: LyricsRequest):
         if "instrumental" in fn_lower or "inst" in fn_lower or "other" in fn_lower:
             candidates = [
                 re.sub(r'instrumental', 'Vocals', req.file_name, flags=re.IGNORECASE),
+                re.sub(r'instrumental', 'vocals', req.file_name, flags=re.IGNORECASE),
                 re.sub(r'instrumental', 'vocal', req.file_name, flags=re.IGNORECASE),
                 re.sub(r'inst', 'Vocals', req.file_name, flags=re.IGNORECASE),
                 re.sub(r'other', 'vocals', req.file_name, flags=re.IGNORECASE),
+                re.sub(r'other', 'Vocals', req.file_name, flags=re.IGNORECASE),
             ]
             for cand in candidates:
                 try:
@@ -1546,49 +1548,105 @@ async def transcribe_lyrics_endpoint(req: LyricsRequest):
                 except:
                     pass
 
+        # Candidate hallucination filter list
+        hallucination_phrases = [
+            'altyazı', 'altyazi', 'izlediğiniz için', 'izlediginiz icin', 'teşekkürler', 'tesekkurler',
+            'teşekkür ederim', 'tesekkur ederim', 'abone', 'youtube', 'translated by', 'copyright',
+            'thank you for watching', 'subtitles by'
+        ]
+
+        def _clean_segment_text(txt: str) -> str:
+            txt = re.sub(r'\[.*?\]|\(.*?\)', '', txt)
+            return txt.strip()
+
         segments = []
         try:
             model = get_whisper_model()
+            # Pass 1: Transcribe with anti-hallucination & tuned VAD
             res_segments, info = model.transcribe(
                 str(target_path),
                 language=req.language if req.language else None,
+                condition_on_previous_text=False,
                 vad_filter=True,
-                vad_parameters=dict(min_silence_duration_ms=800, speech_pad_ms=500),
+                vad_parameters=dict(min_silence_duration_ms=300, speech_pad_ms=300),
                 beam_size=5,
-                word_timestamps=True
+                word_timestamps=True,
+                initial_prompt="Şarkı sözleri, vokal:"
             )
             for seg in res_segments:
-                txt = seg.text.strip()
-                if txt:
-                    words_list = []
-                    if hasattr(seg, 'words') and seg.words:
-                        for w in seg.words:
-                            w_txt = w.word.strip()
-                            if w_txt:
-                                words_list.append({
-                                    "word": w_txt,
-                                    "start": round(w.start, 2),
-                                    "end": round(w.end, 2)
-                                })
+                raw_txt = seg.text.strip()
+                if not raw_txt:
+                    continue
+                # Skip hallucinated outro / credit phrases
+                low = raw_txt.lower()
+                if any(h in low for h in hallucination_phrases) and (seg.end - seg.start < 3.0 or len(raw_txt) < 35):
+                    continue
+                
+                txt = _clean_segment_text(raw_txt) or raw_txt
+                words_list = []
+                if hasattr(seg, 'words') and seg.words:
+                    for w in seg.words:
+                        w_txt = w.word.strip()
+                        if w_txt and not any(h in w_txt.lower() for h in hallucination_phrases):
+                            words_list.append({
+                                "word": w_txt,
+                                "start": round(w.start, 2),
+                                "end": round(w.end, 2)
+                            })
+                segments.append({
+                    "start": round(seg.start, 2),
+                    "end": round(seg.end, 2),
+                    "text": txt,
+                    "words": words_list
+                })
+
+            # Pass 2: If VAD was too aggressive and produced 0 segments, retry without VAD
+            if len(segments) == 0:
+                print(f"[WHISPER] Retrying {target_path.name} with vad_filter=False...")
+                res_segments2, _ = model.transcribe(
+                    str(target_path),
+                    language=req.language if req.language else None,
+                    condition_on_previous_text=False,
+                    vad_filter=False,
+                    beam_size=5,
+                    word_timestamps=True,
+                    initial_prompt="Şarkı sözleri, vokal:"
+                )
+                for seg in res_segments2:
+                    raw_txt = seg.text.strip()
+                    if not raw_txt:
+                        continue
+                    low = raw_txt.lower()
+                    if any(h in low for h in hallucination_phrases) and (seg.end - seg.start < 3.0 or len(raw_txt) < 35):
+                        continue
+                    txt = _clean_segment_text(raw_txt) or raw_txt
                     segments.append({
                         "start": round(seg.start, 2),
                         "end": round(seg.end, 2),
                         "text": txt,
-                        "words": words_list
+                        "words": []
                     })
         except Exception as e:
             print(f"[WHISPER TURBO ERROR] {e}")
             try:
                 import whisper
                 model = whisper.load_model("large-v3-turbo", download_root=str(WHISPER_DIR))
-                result = model.transcribe(str(target_path), language=req.language if req.language else None)
+                result = model.transcribe(
+                    str(target_path),
+                    language=req.language if req.language else None,
+                    condition_on_previous_text=False,
+                    initial_prompt="Şarkı sözleri, vokal:"
+                )
                 for seg in result.get("segments", []):
-                    txt = seg.get("text", "").strip()
-                    if txt:
+                    raw_txt = seg.get("text", "").strip()
+                    if raw_txt:
+                        low = raw_txt.lower()
+                        if any(h in low for h in hallucination_phrases) and (seg["end"] - seg["start"] < 3.0 or len(raw_txt) < 35):
+                            continue
                         segments.append({
                             "start": round(seg["start"], 2),
                             "end": round(seg["end"], 2),
-                            "text": txt,
+                            "text": _clean_segment_text(raw_txt) or raw_txt,
                             "words": []
                         })
             except Exception as e2:
