@@ -1671,6 +1671,8 @@ async def transcribe_lyrics_endpoint(req: LyricsRequest):
         segments = []
         target_model_key = req.model_name if req.model_name in ("large-v3", "large-v3-turbo") else "large-v3"
         prompt_text = req.raw_lyrics_text[:350].strip() if (req.raw_lyrics_text and req.raw_lyrics_text.strip()) else None
+        target_lang = None if (not req.language or req.language.lower() in ("auto", "none", "")) else req.language.lower().strip()
+        detected_lang = target_lang or "tr"
         
         try:
             try:
@@ -1682,7 +1684,7 @@ async def transcribe_lyrics_endpoint(req: LyricsRequest):
             # Transcribe with vad_filter=False to capture 100% of vocal lines without dropping singing
             res_segments, info = model.transcribe(
                 str(target_path),
-                language=req.language if req.language else None,
+                language=target_lang,
                 condition_on_previous_text=False,
                 vad_filter=False,
                 beam_size=5,
@@ -1691,6 +1693,9 @@ async def transcribe_lyrics_endpoint(req: LyricsRequest):
                 word_timestamps=True,
                 initial_prompt=prompt_text
             )
+            if info and hasattr(info, 'language') and info.language:
+                detected_lang = info.language
+
             all_words = []
             for seg in res_segments:
                 if hasattr(seg, 'words') and seg.words:
@@ -1777,10 +1782,12 @@ async def transcribe_lyrics_endpoint(req: LyricsRequest):
                 model = whisper.load_model(target_model_key, download_root=str(WHISPER_DIR))
                 result = model.transcribe(
                     str(target_path),
-                    language=req.language if req.language else None,
+                    language=target_lang,
                     condition_on_previous_text=False,
                     initial_prompt=prompt_text
                 )
+                if isinstance(result, dict) and result.get("language"):
+                    detected_lang = result["language"]
                 for seg in result.get("segments", []):
                     raw_txt = seg.get("text", "").strip()
                     if raw_txt:
@@ -1797,7 +1804,7 @@ async def transcribe_lyrics_endpoint(req: LyricsRequest):
                 print(f"[WHISPER FALLBACK ERROR] {e2}")
 
         # Automatically save newly transcribed lyrics to SQLite database
-        saved_res = save_lyrics_db(req.file_name, req.language or "tr", segments, is_edited=False)
+        saved_res = save_lyrics_db(req.file_name, detected_lang, segments, is_edited=False)
         return saved_res
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -34,6 +34,8 @@ import {
   ClipboardPaste,
   Zap,
   Check,
+  Globe,
+  Languages,
 } from 'lucide-react';
 import { Language, LyricSegment } from '@/lib/types';
 import { getTranslation } from '@/lib/translations';
@@ -48,6 +50,49 @@ interface KaraokeStudioModalProps {
   lang: Language;
   onNotify: (type: 'success' | 'error' | 'warning' | 'info', title: string, message?: string) => void;
 }
+
+const WHISPER_LANGUAGES = [
+  { code: 'auto', name: 'Otomatik Algıla (Auto Detect)', native: 'Auto', flag: '🌐', popular: true },
+  { code: 'tr', name: 'Türkçe', native: 'Türkçe', flag: '🇹🇷', popular: true },
+  { code: 'en', name: 'İngilizce (English)', native: 'English', flag: '🇬🇧', popular: true },
+  { code: 'ko', name: 'Korece (Korean)', native: '한국어', flag: '🇰🇷', popular: true },
+  { code: 'ja', name: 'Japonca (Japanese)', native: '日本語', flag: '🇯🇵', popular: true },
+  { code: 'es', name: 'İspanyolca (Spanish)', native: 'Español', flag: '🇪🇸', popular: true },
+  { code: 'fr', name: 'Fransızca (French)', native: 'Français', flag: '🇫🇷', popular: true },
+  { code: 'de', name: 'Almanca (German)', native: 'Deutsch', flag: '🇩🇪', popular: true },
+  { code: 'ar', name: 'Arapça (Arabic)', native: 'العربية', flag: '🇸🇦', popular: true },
+  { code: 'ru', name: 'Rusça (Russian)', native: 'Русский', flag: '🇷🇺', popular: true },
+  { code: 'it', name: 'İtalyanca (Italian)', native: 'Italiano', flag: '🇮🇹', popular: true },
+  { code: 'pt', name: 'Portekizce (Portuguese)', native: 'Português', flag: '🇵🇹', popular: true },
+  { code: 'zh', name: 'Çince (Chinese)', native: '中文', flag: '🇨🇳', popular: true },
+  { code: 'az', name: 'Azerbaycan Türkçesi', native: 'Azərbaycan', flag: '🇦🇿', popular: true },
+  { code: 'hi', name: 'Hintçe (Hindi)', native: 'हिन्दी', flag: '🇮🇳', popular: true },
+  { code: 'fa', name: 'Farsça (Persian)', native: 'فارسی', flag: '🇮🇷', popular: true },
+  { code: 'el', name: 'Yunanca (Greek)', native: 'Ελληνικά', flag: '🇬🇷', popular: false },
+  { code: 'nl', name: 'Felemenkçe (Dutch)', native: 'Nederlands', flag: '🇳🇱', popular: false },
+  { code: 'sv', name: 'İsveççe (Swedish)', native: 'Svenska', flag: '🇸🇪', popular: false },
+  { code: 'pl', name: 'Lehçe (Polish)', native: 'Polski', flag: '🇵🇱', popular: false },
+  { code: 'uk', name: 'Ukraynaca (Ukrainian)', native: 'Українська', flag: '🇺🇦', popular: false },
+  { code: 'ro', name: 'Romence (Romanian)', native: 'Română', flag: '🇷🇴', popular: false },
+  { code: 'hu', name: 'Macarca (Hungarian)', native: 'Magyar', flag: '🇭🇺', popular: false },
+  { code: 'cs', name: 'Çekçe (Czech)', native: 'Čeština', flag: '🇨🇿', popular: false },
+  { code: 'he', name: 'İbranice (Hebrew)', native: 'עברית', flag: '🇮🇱', popular: false },
+  { code: 'id', name: 'Endonezce (Indonesian)', native: 'Bahasa Indonesia', flag: '🇮🇩', popular: false },
+  { code: 'th', name: 'Tayca (Thai)', native: 'ไทย', flag: '🇹🇭', popular: false },
+  { code: 'vi', name: 'Vietnamca (Vietnamese)', native: 'Tiếng Việt', flag: '🇻🇳', popular: false },
+  { code: 'bg', name: 'Bulgarca (Bulgarian)', native: 'Български', flag: '🇧🇬', popular: false },
+  { code: 'hr', name: 'Hırvatça (Croatian)', native: 'Hrvatski', flag: '🇭🇷', popular: false },
+  { code: 'sr', name: 'Sırpça (Serbian)', native: 'Српски', flag: '🇷🇸', popular: false },
+  { code: 'sk', name: 'Slovakça (Slovak)', native: 'Slovenčina', flag: '🇸🇰', popular: false },
+  { code: 'da', name: 'Danca (Danish)', native: 'Dansk', flag: '🇩🇰', popular: false },
+  { code: 'fi', name: 'Fince (Finnish)', native: 'Suomi', flag: '🇫🇮', popular: false },
+  { code: 'no', name: 'Norveççe (Norwegian)', native: 'Norsk', flag: '🇳🇴', popular: false },
+  { code: 'ca', name: 'Katalanca (Catalan)', native: 'Català', flag: '🇪🇸', popular: false },
+  { code: 'ur', name: 'Urduca (Urdu)', native: 'اردو', flag: '🇵🇰', popular: false },
+  { code: 'ms', name: 'Malayca (Malay)', native: 'Bahasa Melayu', flag: '🇲🇾', popular: false },
+  { code: 'kk', name: 'Kazakça (Kazakh)', native: 'Қазақша', flag: '🇰🇿', popular: false },
+  { code: 'uz', name: 'Özbekçe (Uzbek)', native: 'Oʻzbekcha', flag: '🇺🇿', popular: false },
+];
 
 export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
   isOpen,
@@ -83,6 +128,12 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
   const [showWhisperMenu, setShowWhisperMenu] = useState(false);
   const whisperMenuRef = useRef<HTMLDivElement>(null);
 
+  // Whisper Language Selector State (Supports 99+ Languages & Auto Detect)
+  const [selectedLyricsLang, setSelectedLyricsLang] = useState<string>('auto');
+  const [showLangMenu, setShowLangMenu] = useState(false);
+  const [langSearchQuery, setLangSearchQuery] = useState('');
+  const langMenuRef = useRef<HTMLDivElement>(null);
+
   // Paste & Auto-Align Lyrics Modal State
   const [showPasteModal, setShowPasteModal] = useState(false);
   const [pastedLyricsText, setPastedLyricsText] = useState('');
@@ -96,6 +147,9 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
       }
       if (whisperMenuRef.current && !whisperMenuRef.current.contains(event.target as Node)) {
         setShowWhisperMenu(false);
+      }
+      if (langMenuRef.current && !langMenuRef.current.contains(event.target as Node)) {
+        setShowLangMenu(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -419,11 +473,12 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
     sourceFile: string,
     force = false,
     targetModel = whisperModel,
-    rawLyrics?: string
+    rawLyrics?: string,
+    targetLang = selectedLyricsLang
   ) => {
     setLoadingLyrics(true);
     try {
-      const res = await api.transcribeLyrics(sourceFile, 'tr', force, targetModel, rawLyrics);
+      const res = await api.transcribeLyrics(sourceFile, targetLang, force, targetModel, rawLyrics);
       if (res.segments && res.segments.length > 0) {
         setSegments(res.segments);
         if (res.cached) {
@@ -439,10 +494,11 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
         } else {
           setLastSavedTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
           const modelTitle = targetModel === 'large-v3' ? 'Whisper Large-V3 (Full HQ - 32 Katman)' : 'Whisper Large-V3-Turbo (Hızlı)';
+          const activeL = WHISPER_LANGUAGES.find((l) => l.code === (targetLang || 'auto')) || { name: targetLang, flag: '🌐' };
           onNotify(
             'success',
             'Sözler Çıkarıldı & Kaydedildi!',
-            `${res.segments.length} satır şarkı sözü ${modelTitle} ile çıkarıldı ve kaydedildi.`
+            `${res.segments.length} satır şarkı sözü [${activeL.flag} ${activeL.name}] diliyle ${modelTitle} tarafından başarıyla çıkarıldı.`
           );
         }
       } else {
@@ -994,10 +1050,98 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
               )}
             </div>
 
+            {/* Whisper Language Selector Dropdown */}
+            <div className="relative" ref={langMenuRef}>
+              <button
+                onClick={() => setShowLangMenu(!showLangMenu)}
+                className="px-3 py-1.5 rounded-xl bg-teal-500/10 hover:bg-teal-500/20 text-teal-300 border border-teal-500/30 text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 shadow-sm cursor-pointer"
+                title="Şarkı Sözü Algılama Dilini Değiştirin"
+              >
+                <Globe className="w-3.5 h-3.5 text-teal-400" />
+                <span>
+                  {(() => {
+                    const activeL = WHISPER_LANGUAGES.find((l) => l.code === selectedLyricsLang);
+                    return activeL ? `${activeL.flag} ${activeL.name.split(' (')[0]}` : `🌐 ${selectedLyricsLang}`;
+                  })()}
+                </span>
+                <ChevronDown className="w-3 h-3 opacity-60 ml-0.5" />
+              </button>
+
+              {showLangMenu && (
+                <div className="absolute right-0 top-full mt-2 w-80 bg-slate-900/98 border border-white/15 backdrop-blur-2xl rounded-2xl shadow-2xl p-2.5 z-[100] space-y-2 text-left animate-in fade-in">
+                  <div className="flex items-center justify-between px-1">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                      Şarkı Sözü Dili (Whisper AI)
+                    </span>
+                    <span className="text-[9px] text-teal-400 font-mono">99+ Dil Destekli</span>
+                  </div>
+
+                  {/* Search Filter for Languages */}
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={langSearchQuery}
+                      onChange={(e) => setLangSearchQuery(e.target.value)}
+                      placeholder="Dil ara... (Türkçe, English, 한국어, العربية...)"
+                      className="w-full bg-slate-950/90 border border-white/10 focus:border-teal-500/50 rounded-xl px-3 py-1.5 text-xs text-white placeholder-slate-500 outline-none"
+                      autoFocus
+                    />
+                  </div>
+
+                  {/* Scrollable Language List */}
+                  <div className="max-h-64 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
+                    {WHISPER_LANGUAGES.filter(
+                      (l) =>
+                        !langSearchQuery ||
+                        l.name.toLowerCase().includes(langSearchQuery.toLowerCase()) ||
+                        l.native.toLowerCase().includes(langSearchQuery.toLowerCase()) ||
+                        l.code.toLowerCase().includes(langSearchQuery.toLowerCase())
+                    ).map((langItem) => {
+                      const isSelected = selectedLyricsLang === langItem.code;
+                      return (
+                        <button
+                          key={langItem.code}
+                          onClick={() => {
+                            setSelectedLyricsLang(langItem.code);
+                            setShowLangMenu(false);
+                            setLangSearchQuery('');
+                            fetchInitialLyrics(
+                              vocalStem || instStem,
+                              true,
+                              whisperModel,
+                              undefined,
+                              langItem.code
+                            );
+                          }}
+                          className={cn(
+                            'w-full px-3 py-2 rounded-xl text-left transition-all flex items-center justify-between text-xs cursor-pointer',
+                            isSelected
+                              ? 'bg-teal-500/20 border border-teal-500/40 text-teal-200 font-bold'
+                              : 'hover:bg-white/5 text-slate-300 font-medium'
+                          )}
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="text-base leading-none">{langItem.flag}</span>
+                            <span className="truncate">{langItem.name}</span>
+                            {langItem.native !== langItem.name && (
+                              <span className="text-[10px] text-slate-500 truncate font-normal">
+                                ({langItem.native})
+                              </span>
+                            )}
+                          </div>
+                          {isSelected && <Check className="w-3.5 h-3.5 text-teal-400 shrink-0 ml-2" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+
             <button
-              onClick={() => fetchInitialLyrics(vocalStem || instStem, true, whisperModel)}
+              onClick={() => fetchInitialLyrics(vocalStem || instStem, true, whisperModel, undefined, selectedLyricsLang)}
               disabled={loadingLyrics}
-              title="Seçili Whisper AI modeli ile şarkı sözlerini sıfırdan baştan analiz et"
+              title="Seçili dil ve Whisper AI modeli ile şarkı sözlerini sıfırdan baştan analiz et"
               className="px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
             >
               {loadingLyrics ? (

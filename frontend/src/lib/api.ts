@@ -238,7 +238,7 @@ export const api = {
 
   async transcribeLyrics(
     fileName: string,
-    language: string = 'tr',
+    language: string = 'auto',
     force: boolean = false,
     modelName: string = 'large-v3',
     rawLyricsText?: string
