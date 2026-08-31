@@ -1670,7 +1670,7 @@ async def transcribe_lyrics_endpoint(req: LyricsRequest):
 
         segments = []
         target_model_key = req.model_name if req.model_name in ("large-v3", "large-v3-turbo") else "large-v3"
-        prompt_text = (req.raw_lyrics_text[:250].strip() if req.raw_lyrics_text and req.raw_lyrics_text.strip() else "Türkçe şarkı sözleri, vokal telaffuzu, net şarkı sözü:")
+        prompt_text = req.raw_lyrics_text[:350].strip() if (req.raw_lyrics_text and req.raw_lyrics_text.strip()) else None
         
         try:
             try:
@@ -1679,18 +1679,15 @@ async def transcribe_lyrics_endpoint(req: LyricsRequest):
                 print(f"[WHISPER] Error loading {target_model_key}: {e}. Falling back to available model...")
                 model = get_whisper_model("large-v3-turbo")
 
-            # Pass 1: Transcribe with anti-hallucination & tuned music-friendly VAD
+            # Transcribe with vad_filter=False to capture 100% of vocal lines without dropping singing
             res_segments, info = model.transcribe(
                 str(target_path),
                 language=req.language if req.language else None,
                 condition_on_previous_text=False,
-                vad_filter=True,
-                vad_parameters=dict(min_silence_duration_ms=400, speech_pad_ms=400, threshold=0.30),
+                vad_filter=False,
                 beam_size=5,
                 best_of=5,
                 temperature=[0.0, 0.2, 0.4],
-                compression_ratio_threshold=2.4,
-                no_speech_threshold=0.6,
                 word_timestamps=True,
                 initial_prompt=prompt_text
             )
@@ -1698,9 +1695,9 @@ async def transcribe_lyrics_endpoint(req: LyricsRequest):
                 raw_txt = seg.text.strip()
                 if not raw_txt:
                     continue
-                # Skip hallucinated outro / credit phrases
+                # Skip tiny hallucinated outro / subtitle credit phrases
                 low = raw_txt.lower()
-                if any(h in low for h in hallucination_phrases) and (seg.end - seg.start < 3.0 or len(raw_txt) < 35):
+                if any(h in low for h in hallucination_phrases) and (seg.end - seg.start < 2.5 and len(raw_txt) < 25):
                     continue
                 
                 txt = _clean_segment_text(raw_txt) or raw_txt
@@ -1708,7 +1705,7 @@ async def transcribe_lyrics_endpoint(req: LyricsRequest):
                 if hasattr(seg, 'words') and seg.words:
                     for w in seg.words:
                         w_txt = w.word.strip()
-                        if w_txt and not any(h in w_txt.lower() for h in hallucination_phrases):
+                        if w_txt:
                             words_list.append({
                                 "word": w_txt,
                                 "start": round(w.start, 2),
@@ -1720,37 +1717,6 @@ async def transcribe_lyrics_endpoint(req: LyricsRequest):
                     "text": txt,
                     "words": words_list
                 })
-
-            # Pass 2: If VAD was too aggressive and produced 0 segments, retry without VAD
-            if len(segments) == 0:
-                print(f"[WHISPER] Retrying {target_path.name} with vad_filter=False...")
-                res_segments2, _ = model.transcribe(
-                    str(target_path),
-                    language=req.language if req.language else None,
-                    condition_on_previous_text=False,
-                    vad_filter=False,
-                    beam_size=5,
-                    best_of=5,
-                    temperature=[0.0, 0.2, 0.4],
-                    compression_ratio_threshold=2.4,
-                    no_speech_threshold=0.6,
-                    word_timestamps=True,
-                    initial_prompt=prompt_text
-                )
-                for seg in res_segments2:
-                    raw_txt = seg.text.strip()
-                    if not raw_txt:
-                        continue
-                    low = raw_txt.lower()
-                    if any(h in low for h in hallucination_phrases) and (seg.end - seg.start < 3.0 or len(raw_txt) < 35):
-                        continue
-                    txt = _clean_segment_text(raw_txt) or raw_txt
-                    segments.append({
-                        "start": round(seg.start, 2),
-                        "end": round(seg.end, 2),
-                        "text": txt,
-                        "words": []
-                    })
         except Exception as e:
             print(f"[WHISPER ERROR] {e}")
             try:
@@ -1766,7 +1732,7 @@ async def transcribe_lyrics_endpoint(req: LyricsRequest):
                     raw_txt = seg.get("text", "").strip()
                     if raw_txt:
                         low = raw_txt.lower()
-                        if any(h in low for h in hallucination_phrases) and (seg["end"] - seg["start"] < 3.0 or len(raw_txt) < 35):
+                        if any(h in low for h in hallucination_phrases) and (seg["end"] - seg["start"] < 2.5 and len(raw_txt) < 25):
                             continue
                         segments.append({
                             "start": round(seg["start"], 2),

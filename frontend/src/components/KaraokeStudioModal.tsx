@@ -941,7 +941,7 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
                     onClick={() => {
                       setWhisperModel('large-v3');
                       setShowWhisperMenu(false);
-                      onNotify('info', 'Model Seçildi: Whisper Large-V3 (Full HQ)', '32 katmanlı en yüksek doğruluklu model aktif edildi.');
+                      fetchInitialLyrics(vocalStem || instStem, true, 'large-v3');
                     }}
                     className={cn(
                       'w-full p-2.5 rounded-xl text-left transition-all flex items-start gap-2.5 cursor-pointer',
@@ -959,7 +959,7 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
                         </span>
                       </div>
                       <p className="text-[10px] text-slate-400 mt-0.5 leading-tight">
-                        32 Katman • 1.55B Parametre • En yüksek Türkçe şarkı sözü doğruluğu
+                        32 Katman • 1.55B Parametre • Tüm sözleri eksiksiz çıkarır
                       </p>
                     </div>
                   </button>
@@ -968,7 +968,7 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
                     onClick={() => {
                       setWhisperModel('large-v3-turbo');
                       setShowWhisperMenu(false);
-                      onNotify('info', 'Model Seçildi: Whisper Large-V3-Turbo', 'Ultra hızlı transkripsiyon modu aktif edildi.');
+                      fetchInitialLyrics(vocalStem || instStem, true, 'large-v3-turbo');
                     }}
                     className={cn(
                       'w-full p-2.5 rounded-xl text-left transition-all flex items-start gap-2.5 cursor-pointer',
