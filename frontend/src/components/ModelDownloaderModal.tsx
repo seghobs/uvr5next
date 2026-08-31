@@ -11,6 +11,8 @@ import {
   Cpu,
   Layers,
   Sparkles,
+  Crown,
+  Zap,
 } from 'lucide-react';
 import { Language, AccentColor, AvailableModels, ModelStatus } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -40,8 +42,34 @@ export const ModelDownloaderModal: React.FC<ModelDownloaderModalProps> = ({
   const [searchFilter, setSearchFilter] = useState<string>('');
   const [modelStatuses, setModelStatuses] = useState<Record<string, ModelStatus>>({});
   const [downloadingKeys, setDownloadingKeys] = useState<Record<string, number>>({});
-  const [whisperStatus, setWhisperStatus] = useState<{ installed: boolean; size_mb: number }>({ installed: false, size_mb: 0 });
-  const [whisperDownloading, setWhisperDownloading] = useState(false);
+  const [whisperModelsList, setWhisperModelsList] = useState<
+    Array<{
+      key: string;
+      model_name: string;
+      installed: boolean;
+      size_mb: number;
+      desc: string;
+      recommended: boolean;
+    }>
+  >([
+    {
+      key: 'large-v3',
+      model_name: 'Whisper Large-V3 (Full HQ - 32 Katman)',
+      installed: false,
+      size_mb: 0,
+      desc: 'Maksimum doğruluk, 1.55B parametre ve 32 katmanlı derin yapay zeka',
+      recommended: true,
+    },
+    {
+      key: 'large-v3-turbo',
+      model_name: 'Whisper Large-V3-Turbo (Hızlı)',
+      installed: false,
+      size_mb: 0,
+      desc: 'Ultra hızlı, 4 katmanlı şarkı sözü çıkarma modeli',
+      recommended: false,
+    },
+  ]);
+  const [whisperDownloadingKeys, setWhisperDownloadingKeys] = useState<Record<string, boolean>>({});
 
   // Flatten all models with their categories
   const allModelList: { key: string; category: string }[] = [];
@@ -55,9 +83,14 @@ export const ModelDownloaderModal: React.FC<ModelDownloaderModalProps> = ({
   useEffect(() => {
     if (!isOpen) return;
 
-    api.getWhisperStatus().then(st => {
-      setWhisperStatus({ installed: st.installed, size_mb: st.size_mb });
-    }).catch(() => {});
+    api
+      .getWhisperStatus()
+      .then((st) => {
+        if (st.models && st.models.length > 0) {
+          setWhisperModelsList(st.models);
+        }
+      })
+      .catch(() => {});
 
     allModelList.forEach((m) => {
       api
@@ -69,29 +102,36 @@ export const ModelDownloaderModal: React.FC<ModelDownloaderModalProps> = ({
     });
   }, [isOpen, availableModels]);
 
-  const handleDownloadWhisper = async () => {
-    setWhisperDownloading(true);
-    onNotify('info', 'Whisper İndirmesi Başlatıldı', 'Whisper Large-V3-Turbo modeli (~1.5 GB) indiriliyor...');
+  const handleDownloadWhisper = async (modelKey: string = 'large-v3') => {
+    const isFull = modelKey === 'large-v3';
+    const label = isFull ? 'Whisper Large-V3 (Full HQ ~3.1 GB)' : 'Whisper Large-V3-Turbo (~1.5 GB)';
+    setWhisperDownloadingKeys((prev) => ({ ...prev, [modelKey]: true }));
+    onNotify('info', 'Whisper İndirmesi Başlatıldı', `${label} indiriliyor...`);
     try {
-      const res = await api.downloadWhisperModel();
+      const res = await api.downloadWhisperModel(modelKey);
       const taskId = res.task_id;
       const poll = setInterval(async () => {
         try {
           const st = await api.getTaskStatus(taskId);
           if (st.status === 'completed') {
             clearInterval(poll);
-            setWhisperDownloading(false);
-            setWhisperStatus({ installed: true, size_mb: 1540 });
-            onNotify('success', 'Whisper Kuruldu!', 'Whisper Large-V3-Turbo modeli kullanıma hazır.');
+            setWhisperDownloadingKeys((prev) => ({ ...prev, [modelKey]: false }));
+            api
+              .getWhisperStatus()
+              .then((ws) => {
+                if (ws.models) setWhisperModelsList(ws.models);
+              })
+              .catch(() => {});
+            onNotify('success', 'Whisper Kuruldu!', `${label} başarıyla kuruldu.`);
           } else if (st.status === 'failed') {
             clearInterval(poll);
-            setWhisperDownloading(false);
+            setWhisperDownloadingKeys((prev) => ({ ...prev, [modelKey]: false }));
             onNotify('error', 'İndirme Başarısız', st.error || 'Whisper modeli indirilemedi');
           }
         } catch {}
       }, 1500);
     } catch (err: any) {
-      setWhisperDownloading(false);
+      setWhisperDownloadingKeys((prev) => ({ ...prev, [modelKey]: false }));
       onNotify('error', 'İndirme Hatası', err.message);
     }
   };
@@ -231,57 +271,100 @@ export const ModelDownloaderModal: React.FC<ModelDownloaderModalProps> = ({
 
         {/* Models Grid (Scrollable) */}
         <div className="overflow-y-auto custom-scrollbar flex-1 pr-1 space-y-2.5">
-          {/* Featured Whisper Large-V3-Turbo Card */}
-          {(activeCategory === 'all' || activeCategory === 'roformer') && (!searchFilter || 'whisper large-v3-turbo söz karaoke'.includes(searchFilter.toLowerCase())) && (
-            <div className="p-4 rounded-2xl border border-amber-500/30 bg-gradient-to-r from-amber-950/30 via-slate-900/60 to-orange-950/30 flex items-center justify-between gap-4 shadow-lg shadow-amber-500/5">
-              <div className="flex items-center gap-3.5 min-w-0">
-                <div className="p-2.5 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 shrink-0">
-                  <Sparkles className="w-4 h-4" />
-                </div>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-black text-white truncate font-outfit">
-                      Whisper Large-V3-Turbo
-                    </span>
-                    <span className="text-[10px] font-mono font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/30 shrink-0">
-                      SÖZ & SENKRON AI (~1.5 GB)
-                    </span>
-                  </div>
-                  <div className="text-[11px] text-slate-400 mt-0.5">
-                    {whisperStatus.installed ? (
-                      <span className="text-emerald-400 font-medium flex items-center gap-1">
-                        <CheckCircle2 className="w-3 h-3" /> Cihazınızda kurulu ({whisperStatus.size_mb > 0 ? `${whisperStatus.size_mb} MB` : '1.5 GB'})
-                      </span>
-                    ) : (
-                      <span className="text-amber-300/80">Sıfır Hatalı Türkçe Şarkı Sözü & YouTube Karaoke Motoru</span>
-                    )}
-                  </div>
-                </div>
-              </div>
+          {/* Whisper Speech-to-Text & Karaoke Models Section */}
+          {(activeCategory === 'all' || activeCategory === 'roformer') &&
+            whisperModelsList
+              .filter(
+                (wm) =>
+                  !searchFilter ||
+                  wm.model_name.toLowerCase().includes(searchFilter.toLowerCase()) ||
+                  wm.key.toLowerCase().includes(searchFilter.toLowerCase()) ||
+                  'whisper söz karaoke transkripsiyon full hq turbo'.includes(searchFilter.toLowerCase())
+              )
+              .map((wm) => {
+                const isDownloading = !!whisperDownloadingKeys[wm.key];
+                const isFull = wm.key === 'large-v3';
 
-              <div className="shrink-0">
-                {whisperDownloading ? (
-                  <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500/20 border border-amber-500/30 text-amber-300 text-xs font-bold font-mono animate-pulse">
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    <span>İndiriliyor...</span>
-                  </div>
-                ) : whisperStatus.installed ? (
-                  <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold">
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>Kurulu</span>
-                  </div>
-                ) : (
-                  <button
-                    onClick={handleDownloadWhisper}
-                    className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-black text-xs transition-all shadow-md shadow-amber-500/20 active:scale-95 cursor-pointer"
+                return (
+                  <div
+                    key={wm.key}
+                    className={cn(
+                      'p-4 rounded-2xl border flex items-center justify-between gap-4 shadow-lg transition-all',
+                      isFull
+                        ? 'border-amber-500/40 bg-gradient-to-r from-amber-950/40 via-slate-900/70 to-indigo-950/40 shadow-amber-500/10'
+                        : 'border-indigo-500/30 bg-gradient-to-r from-indigo-950/30 via-slate-900/60 to-slate-950/50 shadow-indigo-500/5'
+                    )}
                   >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>Modeli İndir</span>
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
+                    <div className="flex items-center gap-3.5 min-w-0">
+                      <div
+                        className={cn(
+                          'p-2.5 rounded-xl border shrink-0',
+                          isFull
+                            ? 'bg-amber-500/20 text-amber-400 border-amber-500/40'
+                            : 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30'
+                        )}
+                      >
+                        {isFull ? <Crown className="w-4 h-4" /> : <Zap className="w-4 h-4" />}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs font-black text-white truncate font-outfit">
+                            {wm.model_name}
+                          </span>
+                          {isFull ? (
+                            <span className="text-[10px] font-mono font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/30 shrink-0">
+                              👑 32 KATMAN • EN YÜKSEK DOĞRULUK (~3.1 GB)
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-mono font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 shrink-0">
+                              ⚡ HIZLI SENKRON (~1.5 GB)
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-slate-400 mt-0.5">
+                          {wm.installed ? (
+                            <span className="text-emerald-400 font-medium flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3" /> Cihazınızda kurulu (
+                              {wm.size_mb > 0 ? `${wm.size_mb} MB` : isFull ? '3.1 GB' : '1.5 GB'})
+                            </span>
+                          ) : (
+                            <span className={isFull ? 'text-amber-300/80' : 'text-slate-400'}>
+                              {wm.desc}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="shrink-0">
+                      {isDownloading ? (
+                        <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500/20 border border-amber-500/30 text-amber-300 text-xs font-bold font-mono animate-pulse">
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>İndiriliyor...</span>
+                        </div>
+                      ) : wm.installed ? (
+                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold">
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>Kurulu</span>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => handleDownloadWhisper(wm.key)}
+                          className={cn(
+                            'flex items-center gap-1.5 px-4 py-2 rounded-xl font-black text-xs transition-all shadow-md active:scale-95 cursor-pointer',
+                            isFull
+                              ? 'bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 shadow-amber-500/20'
+                              : 'bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-400 hover:to-indigo-500 text-white shadow-indigo-500/20'
+                          )}
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          <span>Modeli İndir</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
 
           {filteredModels.length === 0 ? (
             <div className="p-12 text-center text-slate-500 text-xs">Model bulunamadı.</div>
