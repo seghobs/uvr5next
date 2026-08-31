@@ -1691,32 +1691,85 @@ async def transcribe_lyrics_endpoint(req: LyricsRequest):
                 word_timestamps=True,
                 initial_prompt=prompt_text
             )
+            all_words = []
             for seg in res_segments:
-                raw_txt = seg.text.strip()
-                if not raw_txt:
-                    continue
-                # Skip tiny hallucinated outro / subtitle credit phrases
-                low = raw_txt.lower()
-                if any(h in low for h in hallucination_phrases) and (seg.end - seg.start < 2.5 and len(raw_txt) < 25):
-                    continue
-                
-                txt = _clean_segment_text(raw_txt) or raw_txt
-                words_list = []
                 if hasattr(seg, 'words') and seg.words:
                     for w in seg.words:
                         w_txt = w.word.strip()
-                        if w_txt:
-                            words_list.append({
-                                "word": w_txt,
-                                "start": round(w.start, 2),
-                                "end": round(w.end, 2)
+                        if not w_txt:
+                            continue
+                        low = w_txt.lower()
+                        if any(h in low for h in hallucination_phrases):
+                            continue
+                        # Filter out low-confidence intro artifacts
+                        if w.start < 15.0 and (w.end - w.start < 0.25 or getattr(w, 'probability', 1.0) < 0.35):
+                            continue
+                        
+                        all_words.append({
+                            "word": w_txt,
+                            "start": round(w.start, 2),
+                            "end": round(w.end, 2),
+                            "prob": round(getattr(w, 'probability', 1.0), 2)
+                        })
+
+            if all_words:
+                current_words = []
+                for w in all_words:
+                    if not current_words:
+                        current_words.append(w)
+                        continue
+                    
+                    prev_w = current_words[-1]
+                    gap = w["start"] - prev_w["end"]
+                    cur_dur = prev_w["end"] - current_words[0]["start"]
+                    word_count = len(current_words)
+                    
+                    should_split = (
+                        gap >= 0.55 or
+                        (word_count >= 4 and gap >= 0.25) or
+                        word_count >= 6 or
+                        cur_dur >= 5.0
+                    )
+                    
+                    if should_split:
+                        line_text = " ".join(x["word"] for x in current_words).strip()
+                        clean_text = _clean_segment_text(line_text) or line_text
+                        if clean_text:
+                            segments.append({
+                                "start": current_words[0]["start"],
+                                "end": current_words[-1]["end"],
+                                "text": clean_text,
+                                "words": current_words
                             })
-                segments.append({
-                    "start": round(seg.start, 2),
-                    "end": round(seg.end, 2),
-                    "text": txt,
-                    "words": words_list
-                })
+                        current_words = [w]
+                    else:
+                        current_words.append(w)
+                
+                if current_words:
+                    line_text = " ".join(x["word"] for x in current_words).strip()
+                    clean_text = _clean_segment_text(line_text) or line_text
+                    if clean_text:
+                        segments.append({
+                            "start": current_words[0]["start"],
+                            "end": current_words[-1]["end"],
+                            "text": clean_text,
+                            "words": current_words
+                        })
+            else:
+                for seg in res_segments:
+                    raw_txt = seg.text.strip()
+                    if not raw_txt:
+                        continue
+                    low = raw_txt.lower()
+                    if any(h in low for h in hallucination_phrases) and (seg.end - seg.start < 2.5 and len(raw_txt) < 25):
+                        continue
+                    txt = _clean_segment_text(raw_txt) or raw_txt
+                    segments.append({
+                        "start": round(seg.start, 2),
+                        "end": round(seg.end, 2),
+                        "text": txt,
+                        "words": []
+                    })
         except Exception as e:
             print(f"[WHISPER ERROR] {e}")
             try:
