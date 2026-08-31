@@ -30,6 +30,10 @@ import {
   FolderDown,
   ChevronDown,
   FileCode,
+  Crown,
+  ClipboardPaste,
+  Zap,
+  Check,
 } from 'lucide-react';
 import { Language, LyricSegment } from '@/lib/types';
 import { getTranslation } from '@/lib/translations';
@@ -70,16 +74,28 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
   const [lastSavedTime, setLastSavedTime] = useState<string | null>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Import / Export State
+  // Import / Export & Whisper Model State
   const [showExportMenu, setShowExportMenu] = useState(false);
   const exportMenuRef = useRef<HTMLDivElement>(null);
   const importFileInputRef = useRef<HTMLInputElement>(null);
 
-  // Close export dropdown on click outside
+  const [whisperModel, setWhisperModel] = useState<'large-v3' | 'large-v3-turbo'>('large-v3');
+  const [showWhisperMenu, setShowWhisperMenu] = useState(false);
+  const whisperMenuRef = useRef<HTMLDivElement>(null);
+
+  // Paste & Auto-Align Lyrics Modal State
+  const [showPasteModal, setShowPasteModal] = useState(false);
+  const [pastedLyricsText, setPastedLyricsText] = useState('');
+  const [isAligningPasted, setIsAligningPasted] = useState(false);
+
+  // Close dropdowns on click outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (exportMenuRef.current && !exportMenuRef.current.contains(event.target as Node)) {
         setShowExportMenu(false);
+      }
+      if (whisperMenuRef.current && !whisperMenuRef.current.contains(event.target as Node)) {
+        setShowWhisperMenu(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -399,25 +415,41 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
     };
   }, [segments, vocalStem, instStem]);
 
-  const fetchInitialLyrics = async (sourceFile: string, force = false) => {
+  const fetchInitialLyrics = async (
+    sourceFile: string,
+    force = false,
+    targetModel = whisperModel,
+    rawLyrics?: string
+  ) => {
     setLoadingLyrics(true);
     try {
-      const res = await api.transcribeLyrics(sourceFile, 'tr', force);
+      const res = await api.transcribeLyrics(sourceFile, 'tr', force, targetModel, rawLyrics);
       if (res.segments && res.segments.length > 0) {
         setSegments(res.segments);
         if (res.cached) {
-          const savedAt = res.updated_at ? new Date(res.updated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Kayıtlı';
+          const savedAt = res.updated_at
+            ? new Date(res.updated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            : 'Kayıtlı';
           setLastSavedTime(savedAt);
-          onNotify('success', 'Veritabanından Yüklendi', `${res.segments.length} satır kayıtlı şarkı sözü SQLite veritabanından anında yüklendi.`);
+          onNotify(
+            'success',
+            'Veritabanından Yüklendi',
+            `${res.segments.length} satır kayıtlı şarkı sözü SQLite veritabanından anında yüklendi.`
+          );
         } else {
           setLastSavedTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
-          onNotify('success', 'Sözler Çıkarıldı & Kaydedildi!', `${res.segments.length} satır şarkı sözü Whisper AI ile çıkarıldı ve SQLite veritabanına kaydedildi.`);
+          const modelTitle = targetModel === 'large-v3' ? 'Whisper Large-V3 (Full HQ - 32 Katman)' : 'Whisper Large-V3-Turbo (Hızlı)';
+          onNotify(
+            'success',
+            'Sözler Çıkarıldı & Kaydedildi!',
+            `${res.segments.length} satır şarkı sözü ${modelTitle} ile çıkarıldı ve kaydedildi.`
+          );
         }
       } else {
         setSegments([]);
       }
     } catch (err: any) {
-      onNotify('warning', 'Söz Çıkarma Uyarısı', 'Whisper sözleri otomatik okuyamadı, manuel satır ekleyebilirsiniz.');
+      onNotify('warning', 'Söz Çıkarma Uyarısı', 'Whisper sözleri otomatik okuyamadı, manuel satır ekleyebilir veya söz yapıştırabilirsiniz.');
     } finally {
       setLoadingLyrics(false);
     }
@@ -884,11 +916,89 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
               </button>
             )}
 
+            {/* Whisper AI Model Selector Dropdown */}
+            <div className="relative" ref={whisperMenuRef}>
+              <button
+                onClick={() => setShowWhisperMenu(!showWhisperMenu)}
+                className="px-3 py-1.5 rounded-xl bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 shadow-sm cursor-pointer"
+                title="Kullanılacak Whisper Yapay Zeka Modelini Seçin"
+              >
+                {whisperModel === 'large-v3' ? (
+                  <Crown className="w-3.5 h-3.5 text-amber-400" />
+                ) : (
+                  <Zap className="w-3.5 h-3.5 text-indigo-400" />
+                )}
+                <span>{whisperModel === 'large-v3' ? 'Large-V3 (Full HQ)' : 'Large-V3-Turbo'}</span>
+                <ChevronDown className="w-3 h-3 opacity-60 ml-0.5" />
+              </button>
+
+              {showWhisperMenu && (
+                <div className="absolute right-0 top-full mt-2 w-72 bg-slate-900/95 border border-white/15 backdrop-blur-2xl rounded-2xl shadow-2xl p-2 z-[100] space-y-1.5 text-left animate-in fade-in">
+                  <div className="px-2.5 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                    Whisper Yapay Zeka Modeli
+                  </div>
+                  <button
+                    onClick={() => {
+                      setWhisperModel('large-v3');
+                      setShowWhisperMenu(false);
+                      onNotify('info', 'Model Seçildi: Whisper Large-V3 (Full HQ)', '32 katmanlı en yüksek doğruluklu model aktif edildi.');
+                    }}
+                    className={cn(
+                      'w-full p-2.5 rounded-xl text-left transition-all flex items-start gap-2.5 cursor-pointer',
+                      whisperModel === 'large-v3'
+                        ? 'bg-amber-500/15 border border-amber-500/30 text-white'
+                        : 'hover:bg-white/5 text-slate-300'
+                    )}
+                  >
+                    <Crown className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-bold">Whisper Large-V3</span>
+                        <span className="text-[9px] font-bold bg-amber-400/20 text-amber-300 px-1.5 py-0.2 rounded border border-amber-400/30">
+                          FULL HQ
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-400 mt-0.5 leading-tight">
+                        32 Katman • 1.55B Parametre • En yüksek Türkçe şarkı sözü doğruluğu
+                      </p>
+                    </div>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setWhisperModel('large-v3-turbo');
+                      setShowWhisperMenu(false);
+                      onNotify('info', 'Model Seçildi: Whisper Large-V3-Turbo', 'Ultra hızlı transkripsiyon modu aktif edildi.');
+                    }}
+                    className={cn(
+                      'w-full p-2.5 rounded-xl text-left transition-all flex items-start gap-2.5 cursor-pointer',
+                      whisperModel === 'large-v3-turbo'
+                        ? 'bg-indigo-500/15 border border-indigo-500/30 text-white'
+                        : 'hover:bg-white/5 text-slate-300'
+                    )}
+                  >
+                    <Zap className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-bold">Whisper Large-V3-Turbo</span>
+                        <span className="text-[9px] font-bold bg-indigo-400/20 text-indigo-300 px-1.5 py-0.2 rounded border border-indigo-400/30">
+                          HIZLI
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-400 mt-0.5 leading-tight">
+                        4 Katman • ~4x Hızlı transkripsiyon
+                      </p>
+                    </div>
+                  </button>
+                </div>
+              )}
+            </div>
+
             <button
-              onClick={() => fetchInitialLyrics(vocalStem || instStem, true)}
+              onClick={() => fetchInitialLyrics(vocalStem || instStem, true, whisperModel)}
               disabled={loadingLyrics}
-              title="Whisper AI ile şarkı sözlerini sıfırdan baştan analiz et"
-              className="px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 disabled:opacity-50"
+              title="Seçili Whisper AI modeli ile şarkı sözlerini sıfırdan baştan analiz et"
+              className="px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
             >
               {loadingLyrics ? (
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -896,6 +1006,16 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
                 <Sparkles className="w-3.5 h-3.5" />
               )}
               <span>AI ile Yeniden Çıkar</span>
+            </button>
+
+            {/* Paste & Auto-Align Lyrics Button */}
+            <button
+              onClick={() => setShowPasteModal(true)}
+              className="px-3 py-1.5 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-500/30 text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 shadow-sm cursor-pointer"
+              title="Şarkının gerçek sözlerini yapıştırıp yapay zeka ile otomatik zamanla"
+            >
+              <ClipboardPaste className="w-3.5 h-3.5 text-purple-400" />
+              <span>Söz Yapıştır & Senkronla</span>
             </button>
 
             {/* Hidden File Input for Importing Lyrics */}
@@ -1683,6 +1803,78 @@ export const KaraokeStudioModal: React.FC<KaraokeStudioModalProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Paste Lyrics & Auto-Align Modal */}
+      {showPasteModal && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in">
+          <div className="bg-slate-900 border border-purple-500/30 rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <ClipboardPaste className="w-5 h-5 text-purple-400" />
+                <h3 className="text-base font-bold font-outfit text-white">Söz Yapıştır & Otomatik Hizala</h3>
+              </div>
+              <button
+                onClick={() => setShowPasteModal(false)}
+                className="p-1.5 rounded-xl hover:bg-white/10 text-slate-400 hover:text-white transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Şarkının orijinal sözlerini (Genius, Google vb.) aşağıya yapıştırın. Whisper yapay zekası bu sözleri vokal sesindeki milisaniyelik zamanlamalarla sıfır imla hatasıyla otomatik eşleştirecektir.
+            </p>
+
+            <textarea
+              value={pastedLyricsText}
+              onChange={(e) => setPastedLyricsText(e.target.value)}
+              placeholder={"Örnek:\nBir fırtına tuttu bizi deryaya kardı\nO bizim kavuşmalarımız a mahşere kaldı\n..."}
+              rows={8}
+              className="w-full bg-slate-950/90 border border-white/10 focus:border-purple-500 rounded-2xl p-3.5 text-xs text-slate-200 outline-none resize-none font-mono leading-relaxed placeholder:text-slate-600"
+            />
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowPasteModal(false)}
+                className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-slate-300 text-xs font-bold transition-all cursor-pointer"
+              >
+                Vazgeç
+              </button>
+              <button
+                type="button"
+                disabled={!pastedLyricsText.trim() || isAligningPasted}
+                onClick={async () => {
+                  setIsAligningPasted(true);
+                  try {
+                    await fetchInitialLyrics(vocalStem || instStem, true, whisperModel, pastedLyricsText);
+                    setShowPasteModal(false);
+                    setPastedLyricsText('');
+                    onNotify('success', 'Sözler Hizalandı & Senkronlandı!', 'Yapıştırılan sözler vokal sesine uyarlandı.');
+                  } catch (e: any) {
+                    onNotify('error', 'Hizalama Hatası', e.message);
+                  } finally {
+                    setIsAligningPasted(false);
+                  }
+                }}
+                className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-bold flex items-center gap-2 transition-all active:scale-95 shadow-lg shadow-purple-600/30 cursor-pointer disabled:opacity-50"
+              >
+                {isAligningPasted ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Hizalanıyor...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4" />
+                    <span>Otomatik Senkronla & Başlat</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>,
     document.body
   );

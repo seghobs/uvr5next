@@ -239,12 +239,20 @@ export const api = {
   async transcribeLyrics(
     fileName: string,
     language: string = 'tr',
-    force: boolean = false
+    force: boolean = false,
+    modelName: string = 'large-v3',
+    rawLyricsText?: string
   ): Promise<LyricsResponse> {
     const res = await safeFetch('/transcribe_lyrics', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ file_name: fileName, language, force }),
+      body: JSON.stringify({
+        file_name: fileName,
+        language,
+        force,
+        model_name: modelName,
+        raw_lyrics_text: rawLyricsText,
+      }),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
@@ -358,25 +366,32 @@ export const api = {
     key: string;
     installed: boolean;
     size_mb: number;
-    path: string;
+    models?: Array<{
+      key: string;
+      model_name: string;
+      installed: boolean;
+      size_mb: number;
+      desc: string;
+      recommended: boolean;
+    }>;
   }> {
     const res = await safeFetch('/whisper_status');
     if (!res.ok) {
       return {
-        model_name: 'Whisper Large-V3-Turbo',
-        key: 'large-v3-turbo',
+        model_name: 'Whisper Large-V3 (Full HQ)',
+        key: 'large-v3',
         installed: false,
         size_mb: 0,
-        path: '',
       };
     }
     return res.json();
   },
 
-  async downloadWhisperModel(): Promise<{ status: string; task_id: string }> {
+  async downloadWhisperModel(modelType: string = 'large-v3'): Promise<{ status: string; task_id: string }> {
     const res = await safeFetch('/download_whisper', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model_type: modelType }),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
